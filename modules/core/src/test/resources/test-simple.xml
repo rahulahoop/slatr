@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<catalog>
+  <book>
+    <title>Test Book 1</title>
+    <author>Author One</author>
+    <year>2020</year>
+    <price>19.99</price>
+  </book>
+  <book>
+    <title>Test Book 2</title>
+    <author>Author Two</author>
+    <year>2021</year>
+    <price>29.99</price>
+  </book>
+</catalog>

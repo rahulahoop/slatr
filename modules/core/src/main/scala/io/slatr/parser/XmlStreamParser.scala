@@ -52,12 +52,20 @@ class XmlStreamParser extends LazyLogging {
               val attributeCount = reader.getAttributeCount
               for (i <- 0 until attributeCount) {
                 val attrName = reader.getAttributeLocalName(i)
-                if (attrName == "schemaLocation" || attrName == "noNamespaceSchemaLocation") {
+                if (attrName == "schemaLocation") {
                   val value = reader.getAttributeValue(i)
-                  // schemaLocation format: "namespace url" - we want the URL
+                  // schemaLocation format: "namespace url" - we want the URL (second one)
                   val urls = value.split("\\s+").filter(_.startsWith("http"))
-                  if (urls.nonEmpty) {
+                  if (urls.length >= 2) {
+                    return Some(urls(1)) // Take the schema URL, not the namespace
+                  } else if (urls.nonEmpty) {
                     return Some(urls.head)
+                  }
+                } else if (attrName == "noNamespaceSchemaLocation") {
+                  val value = reader.getAttributeValue(i)
+                  // noNamespaceSchemaLocation format: just the URL
+                  if (value.startsWith("http")) {
+                    return Some(value.trim)
                   }
                 }
               }
