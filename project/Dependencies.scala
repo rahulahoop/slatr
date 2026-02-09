@@ -34,8 +34,17 @@ object Dependencies {
   // Utilities
   val betterFiles = "com.github.pathikrit" %% "better-files" % "3.9.2"
   
+  // Parquet
+  val parquetHadoop = "org.apache.parquet" % "parquet-hadoop" % "1.13.1"
+  val parquetAvro = "org.apache.parquet" % "parquet-avro" % "1.13.1"
+  val hadoopClient = "org.apache.hadoop" % "hadoop-client" % "3.3.6" excludeAll(
+    ExclusionRule(organization = "javax.servlet"),
+    ExclusionRule(organization = "org.slf4j")
+  )
+  
   // Dependency groups
   val circeDeps = Seq(circeCore, circeGeneric, circeParser, circeYaml)
   val loggingDeps = Seq(logback, scalaLogging)
   val testDeps = Seq(scalaTest, scalaCheck)
+  val parquetDeps = Seq(parquetHadoop, parquetAvro, hadoopClient)
 }

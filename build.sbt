@@ -33,7 +33,7 @@ lazy val core = (project in file("modules/core"))
       xerces,
       sttp,
       betterFiles
-    ) ++ circeDeps ++ loggingDeps ++ testDeps
+    ) ++ circeDeps ++ loggingDeps ++ parquetDeps ++ testDeps
   )
 
 // CLI module

@@ -2,7 +2,7 @@ package io.slatr.cli.commands
 
 import com.monovore.decline._
 import io.slatr.cli.config.ConfigLoader
-import io.slatr.converter.{JsonConverter, JsonLinesConverter}
+import io.slatr.converter.{JsonConverter, JsonLinesConverter, ParquetConverter}
 import io.slatr.model._
 import io.slatr.parser.XmlStreamParser
 import io.slatr.schema.{SchemaInferrer, XsdResolver}
@@ -19,7 +19,7 @@ object ConvertCommand {
   val outputOpt: Opts[File] = Opts.option[String]("output", short = "o", help = "Output file path")
     .mapValidated(s => new File(s).validNel)
   
-  val formatOpt: Opts[OutputFormat] = Opts.option[String]("format", short = "f", help = "Output format (json, jsonl)")
+  val formatOpt: Opts[OutputFormat] = Opts.option[String]("format", short = "f", help = "Output format (json, jsonl, parquet)")
     .withDefault("json")
     .map(OutputFormat.fromString)
   
@@ -95,6 +95,7 @@ object ConvertCommand {
               val converter = format match {
                 case OutputFormat.Json => JsonConverter(xmlParser)
                 case OutputFormat.JsonLines => JsonLinesConverter(xmlParser)
+                case OutputFormat.Parquet => ParquetConverter(xmlParser)
                 case _ => throw new Exception(s"Unsupported format: $format")
               }
               
