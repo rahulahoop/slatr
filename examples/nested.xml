@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<company>
+  <employee>
+    <id>1</id>
+    <name>John Doe</name>
+    <department>Engineering</department>
+    <contact>
+      <email>john@example.com</email>
+      <phone>555-0001</phone>
+    </contact>
+    <projects>
+      <project>
+        <name>Project Alpha</name>
+        <role>Lead Developer</role>
+      </project>
+      <project>
+        <name>Project Beta</name>
+        <role>Contributor</role>
+      </project>
+    </projects>
+  </employee>
+  <employee>
+    <id>2</id>
+    <name>Jane Smith</name>
+    <department>Marketing</department>
+    <contact>
+      <email>jane@example.com</email>
+      <phone>555-0002</phone>
+    </contact>
+    <projects>
+      <project>
+        <name>Campaign 2024</name>
+        <role>Manager</role>
+      </project>
+    </projects>
+  </employee>
+</company>

@@ -1,0 +1,59 @@
+# sbt
+target/
+project/target/
+project/project/
+.bsp/
+.metals/
+.bloop/
+metals.sbt
+
+# Scala
+*.class
+*.log
+*.tasty
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# sbt specific
+lib_managed/
+src_managed/
+project/boot/
+project/plugins/project/
+.history
+.cache
+.lib/
+
+# Build artifacts
+*.jar
+*.war
+*.ear
+*.zip
+*.tar.gz
+*.rar
+
+# Test reports
+test-output/
+*.log
+
+# Coverage reports
+coverage/
+scoverage-report/
+scoverage-data/
+
+# Assembly
+assembly/
+
+# Local config
+local.sbt
+*.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp

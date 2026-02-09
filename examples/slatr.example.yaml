@@ -1,0 +1,32 @@
+input:
+  path: "examples/simple.xml"
+  encoding: "UTF-8"
+
+schema:
+  mode: "hybrid"
+  xsd:
+    enabled: true
+    timeout: 30
+    validate: false
+    followImports: false
+  sampling:
+    size: 1000
+  overrides:
+    forceArrays:
+      - "/catalog/book"
+    typeHints:
+      "/catalog/book/year": "int"
+      "/catalog/book/price": "decimal"
+
+chunking:
+  enabled: false
+  chunkSize: "128MB"
+  preferBoundaries: true
+
+output:
+  format: "json"
+  path: "output.json"
+  pretty: true
+
+logging:
+  level: "info"
