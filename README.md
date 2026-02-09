@@ -12,7 +12,8 @@ slatr is a high-performance Scala-based tool for converting potentially large XM
 - ✅ **XSD Auto-Download & Caching** - Automatically fetches and caches XSD schemas from XML headers
 - ✅ **Smart Schema Inference** - Hybrid approach using XSD + sampling + manual overrides
 - ✅ **Array Handling** - Correctly handles single-item vs multi-item arrays
-- ✅ **Multiple Output Formats** - JSON, JSONL (Avro and Parquet coming soon)
+- ✅ **Multiple Output Formats** - JSON, JSONL, Parquet (Avro coming soon)
+- ✅ **Parquet Support** - Apache Parquet columnar format for big data workflows
 - ✅ **CLI Tool** - User-friendly command-line interface
 - 🚧 **Spark Integration** - Distributed processing support (coming in future release)
 - 🚧 **BigQuery Integration** - Direct streaming to BigQuery (coming in future release)
@@ -43,6 +44,9 @@ java -jar modules/cli/target/scala-2.13/slatr.jar convert input.xml -f json -o o
 # Convert to JSON Lines
 java -jar modules/cli/target/scala-2.13/slatr.jar convert input.xml -f jsonl -o output.jsonl
 
+# Convert to Parquet (for Spark/big data)
+java -Djava.security.manager=allow -jar modules/cli/target/scala-2.13/slatr.jar convert input.xml -f parquet -o output.parquet
+
 # Preview inferred schema
 java -jar modules/cli/target/scala-2.13/slatr.jar infer-schema input.xml
 
@@ -61,7 +65,7 @@ slatr convert <input> [options]
 
 Options:
   -o, --output <file>    Output file path (required)
-  -f, --format <format>  Output format: json, jsonl (default: json)
+  -f, --format <format>  Output format: json, jsonl, parquet (default: json)
   -c, --config <file>    Configuration file path
   --pretty               Pretty-print JSON output
   --validate             Validate XML against XSD schema
@@ -230,6 +234,63 @@ slatr ensures consistent array handling, solving the common problem where single
 
 Use `forceArrays` in config to explicitly mark paths as arrays.
 
+## Parquet Support
+
+slatr includes full support for Apache Parquet, the columnar storage format optimized for big data analytics.
+
+### Why Parquet?
+
+- **Columnar Storage**: Efficient for analytical queries
+- **Compression**: Significantly smaller than JSON (typically 10-20x)
+- **Type Safety**: Strongly typed schema
+- **Spark Compatible**: Native format for Apache Spark
+- **Query Performance**: Optimized for SELECT operations
+
+### Usage
+
+```bash
+# Convert XML to Parquet
+java -Djava.security.manager=allow -jar slatr.jar convert input.xml -f parquet -o output.parquet
+
+# With compression (default is SNAPPY)
+java -Djava.security.manager=allow -jar slatr.jar convert input.xml -f parquet -o output.parquet
+```
+
+**Note**: Java 18+ requires the `-Djava.security.manager=allow` flag due to Hadoop security requirements.
+
+### Supported Compressions
+
+- `snappy` (default) - Balanced compression/speed
+- `gzip` - Higher compression ratio
+- `lzo` - Fast compression
+- `brotli` - High compression
+- `zstd` - Modern high-performance
+- `none` - No compression
+
+### Type Mapping
+
+| slatr Type | Parquet Type |
+|------------|--------------|
+| StringType | BINARY (UTF8) |
+| IntType | INT32 |
+| LongType | INT64 |
+| DoubleType | DOUBLE |
+| BooleanType | BOOLEAN |
+| DateType | INT32 (DATE) |
+| TimestampType | INT64 (TIMESTAMP_MILLIS) |
+| DecimalType | FIXED_LEN_BYTE_ARRAY |
+
+### Using with Spark
+
+```scala
+// Read Parquet file created by slatr
+val df = spark.read.parquet("output.parquet")
+df.show()
+
+// Query the data
+df.select("title", "price").filter($"price" > 10).show()
+```
+
 ## Architecture
 
 ```
@@ -239,7 +300,7 @@ slatr/
 │   │   ├── model/         # Data models (Schema, Field, DataType)
 │   │   ├── parser/        # XML streaming parser
 │   │   ├── schema/        # XSD resolver, schema inference
-│   │   └── converter/     # Format converters (JSON, JSONL)
+│   │   └── converter/     # Format converters (JSON, JSONL, Parquet)
 │   │
 │   └── cli/               # CLI application
 │       ├── commands/      # CLI commands
@@ -287,23 +348,25 @@ java -jar modules/cli/target/scala-2.13/slatr.jar convert examples/single-item-l
 
 ## Roadmap
 
-### MVP (Current)
+### Phase 1 - MVP ✅ Complete
 - ✅ XML streaming parser
 - ✅ XSD resolver with in-memory cache
 - ✅ Schema inference (hybrid mode)
 - ✅ JSON and JSONL converters
+- ✅ Comprehensive unit test suite (55 tests)
 - ✅ CLI tool
 
-### Phase 2 (Future)
+### Phase 2 - Converters ✅ Complete
+- ✅ Parquet converter with full type mapping
+- ✅ Compression support (snappy, gzip, zstd, etc.)
+- ✅ Spark-compatible Parquet output
 - ⬜ Avro converter
-- ⬜ Parquet converter
-- ⬜ Unit and integration tests
-- ⬜ Performance benchmarks
 
-### Phase 3 (Future)
-- ⬜ Apache Spark integration
+### Phase 3 (In Progress)
+- 🚧 Apache Spark integration
 - ⬜ Distributed chunking
 - ⬜ Chunk-to-partition mapping
+- ⬜ Performance benchmarks
 
 ### Phase 4 (Future)
 - ⬜ BigQuery streaming writer
