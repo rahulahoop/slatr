@@ -6,7 +6,8 @@ case class SlatrConfig(
   schema: SchemaConfig,
   chunking: ChunkingConfig,
   output: OutputConfig,
-  logging: LoggingConfig = LoggingConfig()
+  logging: LoggingConfig = LoggingConfig(),
+  bigquery: Option[BigQueryConfig] = None
 )
 
 case class InputConfig(
@@ -98,3 +99,27 @@ object OutputFormat {
 case class LoggingConfig(
   level: String = "info"
 )
+
+case class BigQueryConfig(
+  project: String,
+  dataset: String,
+  table: String,
+  location: String = "US",
+  writeMode: WriteMode = WriteMode.Append,
+  createTable: Boolean = true,
+  credentials: Option[String] = None // Path to service account JSON
+)
+
+sealed trait WriteMode
+object WriteMode {
+  case object Append extends WriteMode
+  case object Overwrite extends WriteMode
+  case object ErrorIfExists extends WriteMode
+  
+  def fromString(s: String): WriteMode = s.toLowerCase match {
+    case "append" => Append
+    case "overwrite" => Overwrite
+    case "error" => ErrorIfExists
+    case _ => Append
+  }
+}

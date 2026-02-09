@@ -1,7 +1,7 @@
 package io.slatr.cli
 
 import com.monovore.decline._
-import io.slatr.cli.commands.{ConvertCommand, InferSchemaCommand, XsdInfoCommand}
+import io.slatr.cli.commands.{BigQueryCommand, ConvertCommand, InferSchemaCommand, XsdInfoCommand}
 import cats.implicits._
 
 object Main extends CommandApp(
@@ -12,7 +12,8 @@ object Main extends CommandApp(
     val commands = Opts.subcommands(
       ConvertCommand.command,
       InferSchemaCommand.command,
-      XsdInfoCommand.command
+      XsdInfoCommand.command,
+      BigQueryCommand.command
     )
     
     commands

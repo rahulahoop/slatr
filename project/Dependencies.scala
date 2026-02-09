@@ -42,9 +42,13 @@ object Dependencies {
     ExclusionRule(organization = "org.slf4j")
   )
   
+  // BigQuery
+  val bigquery = "com.google.cloud" % "google-cloud-bigquery" % "2.34.2"
+  
   // Dependency groups
   val circeDeps = Seq(circeCore, circeGeneric, circeParser, circeYaml)
   val loggingDeps = Seq(logback, scalaLogging)
   val testDeps = Seq(scalaTest, scalaCheck)
   val parquetDeps = Seq(parquetHadoop, parquetAvro, hadoopClient)
+  val bigqueryDeps = Seq(bigquery)
 }
