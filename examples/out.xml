@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<ernm:NewReleaseMessage LanguageAndScriptCode="en" MessageSchemaVersionId="/ern/382" xs:schemaLocation="http://ddex.net/xml/ern/382 http://ddex.net/xml/ern/382/release-notification.xsd" xmlns:ernm="http://ddex.net/xml/ern/382" xmlns:xs="http://www.w3.org/2001/XMLSchema-instance">
+    <MessageHeader>
+        <MessageId>123456791</MessageId>
+        <MessageSender>
+            <PartyId>DPID_OF_THE_SENDER</PartyId>
+            <PartyName>
+                <FullName>COMPANY NAME</FullName>
+            </PartyName>
+        </MessageSender>
+        <MessageRecipient>
+            <PartyId>PADPIDA2013102502A</PartyId>
+            <PartyName>
+                <FullName>Audible Magic</FullName>
+            </PartyName>
+        </MessageRecipient>
+        <MessageCreatedDateTime>2020-01-05T15:50:00+00:00</MessageCreatedDateTime>
+        <MessageControlType>LiveMessage</MessageControlType>
+    </MessageHeader>
+    <UpdateIndicator>UpdateMessage</UpdateIndicator>
+    <ResourceList>
+        <SoundRecording>
+            <SoundRecordingType>MusicalWorkSoundRecording</SoundRecordingType>
+            <SoundRecordingId>
+                <ISRC>USAT12345678</ISRC>
+            </SoundRecordingId>
+            <ResourceReference>A1</ResourceReference>
+            <ReferenceTitle LanguageAndScriptCode="en">
+                <TitleText>Example Title Update</TitleText>
+            </ReferenceTitle>
+            <LanguageOfPerformance>en</LanguageOfPerformance>
+            <Duration>PT0H1M30S</Duration>
+            <SoundRecordingDetailsByTerritory>
+                <TerritoryCode>Worldwide</TerritoryCode>
+                <Title TitleType="FormalTitle" LanguageAndScriptCode="en">
+                    <TitleText>Example Title Update</TitleText>
+                </Title>
+                <Title TitleType="DisplayTitle" LanguageAndScriptCode="en">
+                    <TitleText>Example Title Update</TitleText>
+                </Title>
+                <DisplayArtist SequenceNumber="1">
+                    <PartyName>
+                        <FullName>Example Artist</FullName>
+                    </PartyName>
+                    <ArtistRole>MainArtist</ArtistRole>
+                </DisplayArtist>
+                <DisplayArtistName>Example Artist</DisplayArtistName>
+                <LabelName LabelNameType="DisplayLabelName">COMPANY NAME</LabelName>
+                <RightsController>
+                    <PartyName>
+                        <FullName>COMPANY NAME</FullName>
+                    </PartyName>
+                    <PartyId>DPID_OF_THE_SENDER</PartyId>
+                    <RightsControllerRole>RightsController</RightsControllerRole>
+                    <RightSharePercentage>0.00</RightSharePercentage>
+                </RightsController>
+                <PLine>
+                    <Year>2020</Year>
+                    <PLineText>(P) 2020 COMPANY NAME Inc.</PLineText>
+                </PLine>
+                <Genre>
+                    <GenreText>Rock</GenreText>
+                </Genre>
+                <ParentalWarningType>NotExplicit</ParentalWarningType>
+            </SoundRecordingDetailsByTerritory>
+        </SoundRecording>
+    </ResourceList>
+    <ReleaseList>
+        <Release IsMainRelease="true">
+            <ReleaseId>
+                <GRid>A12345A67890123456</GRid>
+                <ISRC>USAT12345678</ISRC>
+            </ReleaseId>
+            <ReleaseReference>R0</ReleaseReference>
+            <ReferenceTitle LanguageAndScriptCode="en">
+                <TitleText>Example Title Update</TitleText>
+            </ReferenceTitle>
+            <ReleaseResourceReferenceList>
+                <ReleaseResourceReference ReleaseResourceType="PrimaryResource">A1</ReleaseResourceReference>
+            </ReleaseResourceReferenceList>
+            <ReleaseType>SingleResourceRelease</ReleaseType>
+            <ReleaseDetailsByTerritory>
+                <TerritoryCode>Worldwide</TerritoryCode>
+                <DisplayArtistName>Example Artist</DisplayArtistName>
+                <LabelName LabelNameType="DisplayLabelName">COMPANY NAME</LabelName>
+                <Title TitleType="FormalTitle" LanguageAndScriptCode="en">
+                    <TitleText>Example Title Update</TitleText>
+                </Title>
+                <Title TitleType="DisplayTitle" LanguageAndScriptCode="en">
+                    <TitleText>Example Title Update</TitleText>
+                </Title>
+                <DisplayArtist SequenceNumber="1">
+                    <PartyName>
+                        <FullName>Example Artist</FullName>
+                    </PartyName>
+                    <ArtistRole>MainArtist</ArtistRole>
+                </DisplayArtist>
+                <ParentalWarningType>NotExplicit</ParentalWarningType>
+                <ResourceGroup>
+                    <ResourceGroupContentItem>
+                        <SequenceNumber>1</SequenceNumber>
+                        <ResourceType>SoundRecording</ResourceType>
+                        <ReleaseResourceReference ReleaseResourceType="PrimaryResource">A1</ReleaseResourceReference>
+                    </ResourceGroupContentItem>
+                </ResourceGroup>
+                <Genre>
+                    <GenreText>Rock</GenreText>
+                </Genre>
+            </ReleaseDetailsByTerritory>
+            <Duration>PT0H1M30S</Duration>
+            <PLine>
+                <Year>2020</Year>
+                <PLineText>(P) 2020 COMPANY NAME Inc.</PLineText>
+            </PLine>
+        </Release>
+    </ReleaseList>
+    <DealList>
+        <ReleaseDeal>
+            <DealReleaseReference>R0</DealReleaseReference>
+            <Deal>
+                <DealTerms>
+                    <CommercialModelType>RightsClaimModel</CommercialModelType>
+                    <Usage>
+                        <UseType>UseForIdentification</UseType>
+                    </Usage>
+                    <TerritoryCode IdentifierType="ISO">Worldwide</TerritoryCode>
+                    <ValidityPeriod>
+                        <StartDate>2020-01-01</StartDate>
+                        <EndDate>2020-01-03</EndDate>
+                    </ValidityPeriod>
+                </DealTerms>
+            </Deal>
+            <Deal>
+                <DealTerms>
+                    <CommercialModelType>AsPerContract</CommercialModelType>
+                    <Usage>
+                        <UseType>AsPerContract</UseType>
+                    </Usage>
+                    <TerritoryCode IdentifierType="ISO">Worldwide</TerritoryCode>
+                    <ValidityPeriod>
+                        <StartDate>2020-01-01</StartDate>
+                        <EndDate>2020-01-03</EndDate>
+                    </ValidityPeriod>
+                </DealTerms>
+            </Deal>
+        </ReleaseDeal>
+    </DealList>
+</ernm:NewReleaseMessage>

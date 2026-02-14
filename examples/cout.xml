@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ernm:NewReleaseMessage xmlns:ernm="http://ddex.net/xml/ern/411" LanguageAndScriptCode="en" ReleaseProfileVersionId="SimpleAudioSingle" xmlns:avs="http://ddex.net/xml/avs/avs" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://ddex.net/xml/ern/411 http://ddex.net/xml/ern/411/release-notification.xsd">    
+    <MessageHeader>
+        <MessageThreadId>12345678912_1234567</MessageThreadId>
+        <MessageId>12345678</MessageId>
+        <MessageSender>
+            <PartyId>LabelOwnerDDEXPartyId</PartyId>
+            <PartyName>
+                <FullName>Label Owner Name</FullName>
+            </PartyName>
+        </MessageSender>
+        <MessageRecipient>
+            <PartyId>PADPIDA2013102502A</PartyId>
+            <PartyName>
+                <FullName>Audible Magic</FullName>
+            </PartyName>
+        </MessageRecipient>
+        <MessageCreatedDateTime>2020-01 01T00:16:23.740Z</MessageCreatedDateTime>
+        <MessageControlType>LiveMessage</MessageControlType>
+    </MessageHeader>
+    <PartyList>
+        <Party>
+            <PartyReference>P1</PartyReference>
+            <PartyName>
+                <FullName>Example Artist</FullName>
+                <KeyName>Example Artist</KeyName>
+            </PartyName>
+        </Party>
+        <Party>
+            <PartyReference>P2</PartyReference>
+            <PartyName>
+                <FullName>Example Label</FullName>
+            </PartyName>
+        </Party>
+    </PartyList>
+    <ResourceList>
+        <SoundRecording>
+            <ResourceReference>A1</ResourceReference>
+            <Type>MusicalWorkSoundRecording</Type>
+            <ResourceId>
+                <ISRC>USAT12345678</ISRC>
+            </ResourceId>
+            <DisplayTitleText IsDefault="true">Example Title</DisplayTitleText>
+            <DisplayTitle IsDefault="true">
+                <TitleText>Example Title</TitleText>
+            </DisplayTitle>
+            <AdditionalTitle IsDefault="true" TitleType="FormalTitle">
+                <TitleText>Example Title</TitleText>
+            </AdditionalTitle>
+            <AdditionalTitle IsDefault="true" TitleType="OriginalTitle">
+                <TitleText>Example Title</TitleText>
+            </AdditionalTitle>
+            <DisplayArtistName IsDefault="true">Example Artist</DisplayArtistName>
+            <DisplayArtist SequenceNumber="1">
+                <ArtistPartyReference>P1</ArtistPartyReference>
+                <DisplayArtistRole>MainArtist</DisplayArtistRole>
+            </DisplayArtist>
+            <PLine IsDefault="true">
+                <Year>2020</Year>
+                <PLineCompany>Example Label Inc.</PLineCompany>
+                <PLineText>℗ 2020 Example Label Inc.</PLineText>
+            </PLine>
+            <Duration>PT3M35S</Duration>
+            <CreationDate ApplicableTerritoryCode="US">2020</CreationDate>
+            <ParentalWarningType IsDefault="true">Explicit</ParentalWarningType>
+                <LanguageOfPerformance>en</LanguageOfPerformance>
+        <TechnicalDetails>
+            <TechnicalResourceDetailsReference>T1</TechnicalResourceDetailsReference>
+            <AudioCodecType>FLAC</AudioCodecType>
+            <NumberOfChannels>2</NumberOfChannels>
+            <SamplingRate UnitOfMeasure="kHz">44.1</SamplingRate>
+            <BitsPerSample>16</BitsPerSample>
+            <IsPreview>false</IsPreview>
+            <PreviewDetails>
+               <StartPoint>0</StartPoint>
+               <Duration>PT1M</Duration>
+               <ExpressionType>Informative</ExpressionType>
+            </PreviewDetails>
+            <File>
+               <URI>resources/190295810726_00001_LL.flac</URI>
+               <HashSum>
+                  <Algorithm>MD5</Algorithm>
+                  <HashSumValue>db7dd2f3bb9b322646e3f4d7b65b47ab</HashSumValue>
+               </HashSum>
+            </File>
+         </TechnicalDetails>
+      </SoundRecording>
+    </ResourceList>
+    <ReleaseList>
+        <Release>
+            <ReleaseReference>R1</ReleaseReference>
+            <ReleaseType>SingleResourceRelease</ReleaseType>
+            <ReleaseId>
+                <ISRC>USAT12345678</ISRC>
+            </ReleaseId>
+            <DisplayTitleText IsDefault="true">Example Title</DisplayTitleText>
+            <DisplayTitle IsDefault="true">
+                <TitleText>Example Title</TitleText>
+            </DisplayTitle>
+            <AdditionalTitle IsDefault="true" TitleType="FormalTitle">
+                <TitleText>Example Title</TitleText>
+            </AdditionalTitle>
+            <AdditionalTitle IsDefault="true" TitleType="OriginalTitle">
+                <TitleText>Example Title</TitleText>
+            </AdditionalTitle>
+            <DisplayArtistName IsDefault="true">Example Artist</DisplayArtistName>
+            <DisplayArtist SequenceNumber="1">
+                <ArtistPartyReference>P1</ArtistPartyReference>
+                <DisplayArtistRole>MainArtist</DisplayArtistRole>
+            </DisplayArtist>
+            <ReleaseLabelReference IsDefault="true">P2</ReleaseLabelReference>
+            <PLine IsDefault="true">
+                <Year>2020</Year>
+                <PLineCompany>Example Label Inc.</PLineCompany>
+                <PLineText>℗ 2020 Example Label Inc.</PLineText>
+            </PLine>
+              <CLine IsDefault="true">
+                <Year>2020</Year>
+                <CLineCompany>Example Label Inc.</CLineCompany>
+                <CLineText>© 2020 Example Label Inc.</CLineText>
+              </CLine>
+            <Duration>PT3M35S</Duration>
+            <Genre IsDefault="true">
+                <GenreText>Rock</GenreText>
+            </Genre>
+            <ParentalWarningType IsDefault="true">Explicit</ParentalWarningType>
+            <ResourceGroup> 
+                <SequenceNumber>1</SequenceNumber>
+                <ResourceGroupContentItem>
+                    <SequenceNumber>1</SequenceNumber>
+                    <ReleaseResourceReference>A1</ReleaseResourceReference>
+                </ResourceGroupContentItem>
+            </ResourceGroup>
+        </Release>
+    </ReleaseList>
+<DealList>
+        <ReleaseDeal>
+            <DealReleaseReference>R1</DealReleaseReference>
+            <Deal>
+                    <DealTerms>
+          <TerritoryCode>CA</TerritoryCode>
+          <TerritoryCode>MX</TerritoryCode>
+          <TerritoryCode>US</TerritoryCode>
+          <ValidityPeriod>
+           <StartDate>2020-01-01</StartDate>
+          </ValidityPeriod>
+          <CommercialModelType>RightsClaimModel</CommercialModelType>
+          <UseType>UseForIdentification</UseType>
+                    </DealTerms>
+            </Deal>
+            <Deal>
+                   <DealTerms>
+                           <TerritoryCode>CA</TerritoryCode>
+                           <TerritoryCode>MX</TerritoryCode>
+                           <TerritoryCode>US</TerritoryCode>
+                           <ValidityPeriod>
+                               <StartDate>2020-01-01</StartDate>
+                           </ValidityPeriod>
+                           <CommercialModelType>AsPerContract</CommercialModelType>
+                           <UseType>AsPerContract</UseType>
+                   </DealTerms>
+              </Deal>
+         </ReleaseDeal>
+</DealList>
+</ernm:NewReleaseMessage>
