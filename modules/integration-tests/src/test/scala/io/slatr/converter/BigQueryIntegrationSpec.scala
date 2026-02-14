@@ -1,7 +1,9 @@
 package io.slatr.converter
 
 import com.dimafeng.testcontainers.{ForAllTestContainer, GenericContainer}
-import com.google.api.gax.core.NoCredentialsProvider
+import com.google.auth.Credentials
+import com.google.auth.oauth2.GoogleCredentials
+import com.google.cloud.NoCredentials
 import com.google.cloud.bigquery._
 import io.slatr.model.{BigQueryConfig, DataType, Field, Schema, WriteMode}
 import org.scalatest.flatspec.AnyFlatSpec
@@ -29,7 +31,7 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
     val options = BigQueryOptions.newBuilder()
       .setHost(restEndpoint)
       .setProjectId("test-project")
-      .setCredentials(NoCredentialsProvider.create().getCredentials)
+      .setCredentials(NoCredentials.getInstance())
       .build()
     
     options.getService

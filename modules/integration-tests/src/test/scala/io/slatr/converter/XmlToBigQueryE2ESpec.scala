@@ -1,7 +1,7 @@
 package io.slatr.converter
 
 import com.dimafeng.testcontainers.{ForAllTestContainer, GenericContainer}
-import com.google.api.gax.core.NoCredentialsProvider
+import com.google.cloud.NoCredentials
 import com.google.cloud.bigquery._
 import io.slatr.model.{BigQueryConfig, WriteMode}
 import io.slatr.parser.XmlStreamParser
@@ -37,7 +37,7 @@ class XmlToBigQueryE2ESpec extends AnyFlatSpec with Matchers with ForAllTestCont
     val options = BigQueryOptions.newBuilder()
       .setHost(restEndpoint)
       .setProjectId("test-project")
-      .setCredentials(NoCredentialsProvider.create().getCredentials)
+      .setCredentials(NoCredentials.getInstance())
       .build()
     
     options.getService
