@@ -31,6 +31,10 @@ object Dependencies {
   val scalaTest = "org.scalatest" %% "scalatest" % "3.2.17" % Test
   val scalaCheck = "org.scalacheck" %% "scalacheck" % "1.17.0" % Test
   
+  // Integration Testing
+  val testcontainers = "org.testcontainers" % "testcontainers" % "1.19.3" % "it,test"
+  val testcontainersScalatest = "com.dimafeng" %% "testcontainers-scala-scalatest" % "0.41.0" % "it,test"
+  
   // Utilities
   val betterFiles = "com.github.pathikrit" %% "better-files" % "3.9.2"
   
@@ -45,10 +49,16 @@ object Dependencies {
   // BigQuery
   val bigquery = "com.google.cloud" % "google-cloud-bigquery" % "2.34.2"
   
+  // PostgreSQL
+  val postgresql = "org.postgresql" % "postgresql" % "42.7.1"
+  val testcontainersPostgres = "com.dimafeng" %% "testcontainers-scala-postgresql" % "0.41.0" % "it,test"
+  
   // Dependency groups
   val circeDeps = Seq(circeCore, circeGeneric, circeParser, circeYaml)
   val loggingDeps = Seq(logback, scalaLogging)
   val testDeps = Seq(scalaTest, scalaCheck)
+  val integrationTestDeps = Seq(testcontainers, testcontainersScalatest, testcontainersPostgres, scalaTest, scalaCheck)
   val parquetDeps = Seq(parquetHadoop, parquetAvro, hadoopClient)
   val bigqueryDeps = Seq(bigquery)
+  val postgresqlDeps = Seq(postgresql)
 }

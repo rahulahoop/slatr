@@ -7,7 +7,8 @@ case class SlatrConfig(
   chunking: ChunkingConfig,
   output: OutputConfig,
   logging: LoggingConfig = LoggingConfig(),
-  bigquery: Option[BigQueryConfig] = None
+  bigquery: Option[BigQueryConfig] = None,
+  postgresql: Option[PostgreSQLConfig] = None
 )
 
 case class InputConfig(
@@ -123,3 +124,15 @@ object WriteMode {
     case _ => Append
   }
 }
+
+case class PostgreSQLConfig(
+  host: String = "localhost",
+  port: Int = 5432,
+  database: String,
+  schema: String = "public",
+  table: String,
+  username: String,
+  password: String,
+  writeMode: WriteMode = WriteMode.Append,
+  useFirebaseModel: Boolean = false // Use Firebase-style JSONB key-value storage
+)
