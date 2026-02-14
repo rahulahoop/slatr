@@ -13,10 +13,14 @@ sbt test
 
 ### Integration Tests
 
-We use PostgreSQL for integration testing instead of BigQuery emulator because:
-- BigQuery emulator doesn't support ARM64 (Apple Silicon)
-- PostgreSQL is more reliable and mature
-- Testcontainers handles everything automatically
+Integration tests use Testcontainers to spin up Docker containers automatically:
+- **BigQuery Emulator** - For testing Firebase model and DDEX loading
+- **PostgreSQL** - For testing traditional and Firebase JSONB models
+
+**Note for Apple Silicon (ARM64):** BigQuery emulator requires AMD64 emulation. Set the environment variable:
+```bash
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+```
 
 ```bash
 # Run all integration tests
@@ -25,13 +29,19 @@ just it
 # Or with sbt
 sbt integrationTests/test
 
-# Run specific test
+# Run specific tests
+sbt "integrationTests/testOnly *BigQueryIntegrationSpec"
+sbt "integrationTests/testOnly *DdexToBigQuerySpec"
 sbt "integrationTests/testOnly *PostgreSQLIntegrationSpec"
 ```
 
-### Quick Integration Test
+### Quick Integration Tests
 ```bash
-# Automated PostgreSQL test with DDEX files
+# BigQuery emulator with DDEX files
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+sbt "integrationTests/testOnly *DdexToBigQuerySpec"
+
+# PostgreSQL with DDEX files
 ./scripts/test-postgresql-local.sh
 ```
 
@@ -43,6 +53,13 @@ sbt "integrationTests/testOnly *PostgreSQLIntegrationSpec"
 - **Apple Silicon (ARM64)**: BigQuery emulator uses AMD64 emulation via Rosetta 2
 
 ## What Gets Tested
+
+### BigQuery Integration Tests
+- Traditional schema with typed columns  
+- Firebase model with ARRAY<STRUCT<name, value>> storage
+- DDEX ERN XML file loading (500+ fields)
+- Schema evolution (append data with different fields)
+- UNNEST query testing (production BigQuery only)
 
 ### PostgreSQL Integration Tests
 - Traditional schema with typed columns

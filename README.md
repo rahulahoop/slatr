@@ -14,9 +14,10 @@ slatr is a high-performance Scala-based tool for converting potentially large XM
 - ✅ **Array Handling** - Correctly handles single-item vs multi-item arrays
 - ✅ **Multiple Output Formats** - JSON, JSONL, Parquet (Avro coming soon)
 - ✅ **Parquet Support** - Apache Parquet columnar format for big data workflows
+- ✅ **BigQuery Integration** - Direct loading with Firebase model for large schemas
+- ✅ **PostgreSQL Integration** - Batch inserter with traditional and Firebase models
 - ✅ **CLI Tool** - User-friendly command-line interface
 - 🚧 **Spark Integration** - Distributed processing support (coming in future release)
-- 🚧 **BigQuery Integration** - Direct streaming to BigQuery (coming in future release)
 
 ## Quick Start
 
@@ -72,6 +73,40 @@ Options:
   --dry-run              Infer schema only, don't convert
 ```
 
+### to-bigquery
+
+Load XML directly into BigQuery with Firebase model support.
+
+```bash
+slatr to-bigquery <input> [options]
+
+Options:
+  --project-id <id>      BigQuery project ID (required)
+  --dataset-id <id>      BigQuery dataset ID (required)
+  --table-id <id>        BigQuery table ID (required)
+  --firebase-model       Use Firebase model (ARRAY<STRUCT<name, value>>) for large schemas
+  --write-mode <mode>    Write mode: append, overwrite, error (default: append)
+  --credentials <path>   Path to service account JSON (optional)
+```
+
+### to-postgresql
+
+Load XML into PostgreSQL database.
+
+```bash
+slatr to-postgresql <input> [options]
+
+Options:
+  --host <host>          PostgreSQL host (default: localhost)
+  --port <port>          PostgreSQL port (default: 5432)
+  --database <db>        Database name (required)
+  --table <name>         Table name (required)
+  --username <user>      Username (required)
+  --password <pass>      Password (required)
+  --firebase-model       Use Firebase model (JSONB) for large schemas
+  --write-mode <mode>    Write mode: append, overwrite, error (default: append)
+```
+
 **Examples:**
 
 ```bash
@@ -86,6 +121,22 @@ slatr convert input.xml -c slatr.yaml
 
 # Dry run to preview schema
 slatr convert input.xml -f json --dry-run
+
+# Load DDEX XML into BigQuery with Firebase model
+slatr to-bigquery out.xml \
+  --project-id my-project \
+  --dataset-id music_metadata \
+  --table-id releases \
+  --firebase-model \
+  --write-mode overwrite
+
+# Load into PostgreSQL
+slatr to-postgresql data.xml \
+  --host localhost \
+  --database mydb \
+  --table records \
+  --username user \
+  --password pass
 ```
 
 ### infer-schema
@@ -234,6 +285,62 @@ slatr ensures consistent array handling, solving the common problem where single
 
 Use `forceArrays` in config to explicitly mark paths as arrays.
 
+## Firebase Model for Large Schemas
+
+For XML files with 100+ fields (like DDEX ERN), slatr supports the **Firebase model** pattern which stores data as key-value pairs instead of columns.
+
+### Why Firebase Model?
+
+**Problem**: BigQuery has a 10,000 column limit. DDEX ERN files have 500+ fields.
+
+**Solution**: Store all fields as `ARRAY<STRUCT<name STRING, value STRING>>`
+
+### Traditional vs Firebase Model
+
+**Traditional (500 columns):**
+```sql
+CREATE TABLE releases (
+  MessageId STRING,
+  ISRC STRING,
+  Title STRING,
+  Artist STRING,
+  ... 496 more columns ...
+)
+```
+
+**Firebase Model (1 column):**
+```sql
+CREATE TABLE releases (
+  fields ARRAY<STRUCT<name STRING, value STRING>>
+)
+```
+
+### Usage
+
+```bash
+# Load DDEX XML into BigQuery with Firebase model
+slatr to-bigquery out.xml \
+  --project-id my-project \
+  --dataset-id music \
+  --table-id releases \
+  --firebase-model
+
+# Query the data (production BigQuery, not emulator)
+SELECT 
+  (SELECT value FROM UNNEST(fields) WHERE name = 'ISRC') as isrc,
+  (SELECT value FROM UNNEST(fields) WHERE name = 'Title') as title
+FROM `project.music.releases`
+```
+
+### Benefits
+
+- ✅ **Unlimited fields** - No column limit
+- ✅ **Schema evolution** - Add/remove fields without ALTER TABLE
+- ✅ **Variable schemas** - Different field sets in same table
+- ✅ **DDEX support** - Perfect for music industry metadata
+
+See [docs/FIREBASE_MODEL_SCHEMA_EXPLAINED.md](docs/FIREBASE_MODEL_SCHEMA_EXPLAINED.md) for details.
+
 ## Parquet Support
 
 slatr includes full support for Apache Parquet, the columnar storage format optimized for big data analytics.
@@ -362,15 +469,21 @@ java -jar modules/cli/target/scala-2.13/slatr.jar convert examples/single-item-l
 - ✅ Spark-compatible Parquet output
 - ⬜ Avro converter
 
-### Phase 3 (In Progress)
+### Phase 3 - Database Integration ✅ Complete
+- ✅ BigQuery writer with Firebase model
+- ✅ PostgreSQL batch inserter (traditional and Firebase models)
+- ✅ Integration tests with Docker containers
+- ✅ DDEX ERN support (500+ fields)
+- ✅ Schema evolution support
+
+### Phase 4 (In Progress)
 - 🚧 Apache Spark integration
 - ⬜ Distributed chunking
 - ⬜ Chunk-to-partition mapping
 - ⬜ Performance benchmarks
 
-### Phase 4 (Future)
-- ⬜ BigQuery streaming writer
-- ⬜ PostgreSQL batch inserter
+### Phase 5 (Future)
+- ⬜ Avro converter
 - ⬜ Docker container
 - ⬜ CI/CD pipeline
 
