@@ -57,3 +57,5 @@ local.sbt
 tmp/
 temp/
 *.tmp
+
+slatr-package/

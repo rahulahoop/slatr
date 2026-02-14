@@ -144,7 +144,7 @@ class PostgreSQLWriter(
   private def createFirebaseTableSql(): String = {
     s"""
        |CREATE TABLE IF NOT EXISTS ${config.schema}.${config.table} (
-       |  id SERIAL PRIMARY KEY,
+       |  _id SERIAL PRIMARY KEY,
        |  data JSONB NOT NULL,
        |  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
        |)
@@ -155,6 +155,7 @@ class PostgreSQLWriter(
    * Create traditional table with columns for each field
    */
   private def createTraditionalTableSql(): String = {
+    // Use _id instead of id to avoid conflicts with user data
     val columns = schema.fields.map { case (name, field) =>
       val cleanName = cleanFieldName(name)
       val sqlType = dataTypeToPostgreSQLType(field.dataType)
@@ -164,7 +165,7 @@ class PostgreSQLWriter(
 
     s"""
        |CREATE TABLE IF NOT EXISTS ${config.schema}.${config.table} (
-       |  id SERIAL PRIMARY KEY,
+       |  _id SERIAL PRIMARY KEY,
        |$columns,
        |  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
        |)
