@@ -15,17 +15,22 @@ if ! docker info > /dev/null 2>&1; then
     exit 1
 fi
 
+# Set platform for ARM64 compatibility (Apple Silicon)
+export DOCKER_DEFAULT_PLATFORM=linux/amd64
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+
 # Pull emulator image if needed
 echo "📦 Checking for BigQuery emulator image..."
 if ! docker images | grep -q "bigquery-emulator"; then
-    echo "   Pulling BigQuery emulator image..."
-    docker pull ghcr.io/goccy/bigquery-emulator:latest
+    echo "   Pulling BigQuery emulator image (AMD64 for ARM64 compatibility)..."
+    docker pull --platform linux/amd64 ghcr.io/goccy/bigquery-emulator:latest
 fi
 
 # Start emulator
 echo ""
-echo "🚀 Starting BigQuery emulator..."
+echo "🚀 Starting BigQuery emulator (AMD64 emulation on ARM64)..."
 docker run -d --rm \
+    --platform linux/amd64 \
     -p 9050:9050 \
     -p 9060:9060 \
     --name bigquery-emulator-ddex \
@@ -51,7 +56,7 @@ echo "   gRPC API: localhost:9060"
 echo ""
 echo "🧪 Running DDEX integration tests..."
 echo ""
-sbt "integrationTests/testOnly *DdexToBigQuerySpec"
+DOCKER_DEFAULT_PLATFORM=linux/amd64 sbt "integrationTests/testOnly *DdexToBigQuerySpec"
 
 TEST_EXIT_CODE=$?
 

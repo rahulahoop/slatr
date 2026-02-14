@@ -14,6 +14,7 @@ import scala.jdk.CollectionConverters._
 class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestContainer {
 
   // BigQuery emulator container configuration
+  // Note: Requires AMD64 emulation on Apple Silicon (set DOCKER_DEFAULT_PLATFORM=linux/amd64)
   override val container: GenericContainer = GenericContainer(
     dockerImage = "ghcr.io/goccy/bigquery-emulator:latest",
     exposedPorts = Seq(9050, 9060),

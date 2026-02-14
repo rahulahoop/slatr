@@ -51,13 +51,13 @@ run-convert:
 run-to-bigquery:
 	sbt "cli/run to-bigquery --help"
 
-# Pull BigQuery emulator image
+# Pull BigQuery emulator image (AMD64 for ARM64 compatibility)
 pull-emulator:
-	docker pull ghcr.io/goccy/bigquery-emulator:latest
+	docker pull --platform linux/amd64 ghcr.io/goccy/bigquery-emulator:latest
 
 # Start BigQuery emulator standalone
 start-emulator:
-	docker run -it --rm -p 9050:9050 -p 9060:9060 ghcr.io/goccy/bigquery-emulator:latest --project=test-project --dataset=test_dataset
+	docker run -it --rm --platform linux/amd64 -p 9050:9050 -p 9060:9060 ghcr.io/goccy/bigquery-emulator:latest --project=test-project --dataset=test_dataset
 
 # Stop BigQuery emulator
 stop-emulator:
@@ -70,8 +70,8 @@ docker-status:
 
 # Start emulator in background for development
 dev:
-	@echo "Starting BigQuery emulator..."
-	docker run -d --rm -p 9050:9050 -p 9060:9060 --name bigquery-emulator ghcr.io/goccy/bigquery-emulator:latest --project=test-project --dataset=test_dataset
+	@echo "Starting BigQuery emulator (AMD64 emulation for ARM64)..."
+	docker run -d --rm --platform linux/amd64 -p 9050:9050 -p 9060:9060 --name bigquery-emulator ghcr.io/goccy/bigquery-emulator:latest --project=test-project --dataset=test_dataset
 	@sleep 3
 	@echo "BigQuery emulator running on:"
 	@echo "  REST API: http://localhost:9050"
@@ -87,13 +87,13 @@ check-emulator:
 test-emulator:
 	@sleep 5 && curl -s http://localhost:9050 | head -20
 
-# Build and run integration tests against local emulator
+# Build and run integration tests against local emulator  
 it-local:
-	@echo "Starting emulator..."
-	docker run -d --rm -p 9050:9050 -p 9060:9060 --name bigquery-emulator ghcr.io/goccy/bigquery-emulator:latest --project=test-project --dataset=test_dataset
+	@echo "Starting emulator (AMD64 emulation)..."
+	docker run -d --rm --platform linux/amd64 -p 9050:9050 -p 9060:9060 --name bigquery-emulator ghcr.io/goccy/bigquery-emulator:latest --project=test-project --dataset=test_dataset
 	@sleep 5
 	@echo "Running integration tests..."
-	sbt integrationTests/test
+	DOCKER_DEFAULT_PLATFORM=linux/amd64 sbt integrationTests/test
 	@echo "Stopping emulator..."
 	docker stop bigquery-emulator
 
