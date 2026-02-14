@@ -40,12 +40,15 @@ object BigQueryCommand {
   val dryRunOpt: Opts[Boolean] = Opts.flag("dry-run", help = "Preview schema only, don't insert data")
     .orFalse
   
+  val firebaseModelOpt: Opts[Boolean] = Opts.flag("firebase-model", help = "Use Firebase-style array of key-value structs (avoids column limits)")
+    .orFalse
+  
   val command: Command[Unit] = Command(
     name = "to-bigquery",
     header = "Stream XML data directly to BigQuery table"
   ) {
-    (inputOpt, projectOpt, datasetOpt, tableOpt, locationOpt, writeModeOpt, createTableOpt, credentialsOpt, validateOpt, dryRunOpt).mapN {
-      (input, project, dataset, table, location, writeMode, createTable, credentials, validate, dryRun) =>
+    (inputOpt, projectOpt, datasetOpt, tableOpt, locationOpt, writeModeOpt, createTableOpt, credentialsOpt, validateOpt, dryRunOpt, firebaseModelOpt).mapN {
+      (input, project, dataset, table, location, writeMode, createTable, credentials, validate, dryRun, firebaseModel) =>
         
         println(s"Processing ${input.getName} -> BigQuery: $project.$dataset.$table")
         
@@ -79,20 +82,28 @@ object BigQueryCommand {
             } else {
               // Configure BigQuery
               val bqConfig = BigQueryConfig(
-                project = project,
-                dataset = dataset,
-                table = table,
+                projectId = project,
+                datasetId = dataset,
+                tableId = table,
                 location = location,
                 writeMode = writeMode,
-                createTable = createTable,
-                credentials = credentials
+                credentialsPath = credentials,
+                useFirebaseModel = firebaseModel
               )
+              
+              if (firebaseModel) {
+                println("\n📊 Using Firebase model:")
+                println("  - Data stored as array of key-value structs")
+                println("  - Schema: { fields: [{ name: STRING, value: STRING }] }")
+                println("  - Avoids BigQuery column limits")
+                println("  - Easier schema evolution and merging")
+              }
               
               // Write to BigQuery
               println("\nInserting data into BigQuery...")
-              val writer = BigQueryWriter(xmlParser)
+              val writer = BigQueryWriter(schema, bqConfig)
               
-              writer.write(input, schema, bqConfig, None) match {
+              writer.writeFromXml(input, xmlParser, None) match {
                 case scala.util.Success(tableId) =>
                   println(s"✓ Successfully inserted data into ${tableId.getProject}.${tableId.getDataset}.${tableId.getTable}")
                   println(s"\nQuery your data:")

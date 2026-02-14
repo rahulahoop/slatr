@@ -101,13 +101,13 @@ case class LoggingConfig(
 )
 
 case class BigQueryConfig(
-  project: String,
-  dataset: String,
-  table: String,
+  projectId: String,
+  datasetId: String,
+  tableId: String,
   location: String = "US",
   writeMode: WriteMode = WriteMode.Append,
-  createTable: Boolean = true,
-  credentials: Option[String] = None // Path to service account JSON
+  credentialsPath: Option[String] = None, // Path to service account JSON
+  useFirebaseModel: Boolean = false // Use Firebase-style array of key-value structs
 )
 
 sealed trait WriteMode
