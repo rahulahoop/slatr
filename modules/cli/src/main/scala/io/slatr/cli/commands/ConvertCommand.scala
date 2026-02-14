@@ -12,107 +12,52 @@ import cats.implicits._
 
 object ConvertCommand {
   
-  import scala.io.StdIn
-  import scala.util.{Try, Success, Failure}
+  val inputOpt: Opts[File] = Opts.argument[String]("input")
+    .mapValidated(s => new File(s).validNel)
+    .validate("Input file must exist")(_.exists())
   
-  // Interactive input method for XML file
-  def interactiveInputFile(): File = {
-    println("\n🔍 XML to JSON Converter")
-    println("-------------------------")
-    
-    // Repeatedly prompt until a valid input file is provided
-    while (true) {
-      print("Enter the path to your XML file: ")
-      val inputPath = StdIn.readLine().trim
-      
-      if (inputPath.isEmpty) {
-        println("❌ Input path cannot be empty. Please try again.")
-      } else {
-        val inputFile = new File(inputPath)
-        
-        if (!inputFile.exists()) {
-          println(s"❌ File not found: $inputPath. Please check the file path.")
-        } else if (!inputFile.isFile) {
-          println(s"❌ Not a valid file: $inputPath. Please provide a file path.")
-        } else if (!inputPath.toLowerCase.endsWith(".xml")) {
-          println("❌ Please provide a valid XML file (with .xml extension).")
-        } else {
-          return inputFile
-        }
-      }
-    }
-    
-    // This line will never be reached due to the while loop, 
-    // but Scala requires a return value
-    throw new IllegalStateException("Unreachable code")
-  }
+  val outputOpt: Opts[File] = Opts.option[String]("output", short = "o", help = "Output file path")
+    .mapValidated(s => new File(s).validNel)
   
-  // Interactive output file selection
-  def interactiveOutputFile(inputFileName: String): File = {
-    // Default output file name based on input
-    val defaultOutputName = inputFileName.replaceFirst("[.][^.]+$", ".json")
-    
-    print(s"\nOutput file name (default: $defaultOutputName): ")
-    val outputName = StdIn.readLine().trim
-    
-    new File(if (outputName.isEmpty) defaultOutputName else outputName)
-  }
+  val formatOpt: Opts[OutputFormat] = Opts.option[String]("format", short = "f", help = "Output format (json, jsonl, parquet)")
+    .withDefault("json")
+    .map(OutputFormat.fromString)
   
-  // Interactive format selection
-  def interactiveFormatSelection(): OutputFormat = {
-    println("\nSelect output format:")
-    println("1. JSON (default)")
-    println("2. JSON Lines")
-    println("3. Parquet")
-    
-    while (true) {
-      print("Enter your choice (1-3): ")
-      StdIn.readLine().trim match {
-        case "1" | "" => return OutputFormat.Json
-        case "2" => return OutputFormat.JsonLines
-        case "3" => return OutputFormat.Parquet
-        case _ => println("❌ Invalid selection. Please choose 1, 2, or 3.")
-      }
-    }
-    
-    // This line will never be reached
-    throw new IllegalStateException("Unreachable code")
-  }
+  val configOpt: Opts[Option[File]] = Opts.option[String]("config", short = "c", help = "Config file path")
+    .mapValidated(s => new File(s).validNel)
+    .orNone
   
-  // Interactive configuration
-  def interactiveConfiguration(): (Boolean, Boolean, Boolean) = {
-    println("\nAdditional Conversion Options:")
-    
-    print("Enable pretty-print JSON? (y/N): ")
-    val pretty = StdIn.readLine().trim.toLowerCase == "y"
-    
-    print("Validate XML against XSD? (y/N): ")
-    val validate = StdIn.readLine().trim.toLowerCase == "y"
-    
-    print("Perform dry run (schema preview only)? (y/N): ")
-    val dryRun = StdIn.readLine().trim.toLowerCase == "y"
-    
-    (pretty, validate, dryRun)
-  }
+  val prettyOpt: Opts[Boolean] = Opts.flag("pretty", help = "Pretty-print JSON output")
+    .orFalse
+  
+  val validateOpt: Opts[Boolean] = Opts.flag("validate", help = "Validate XML against XSD")
+    .orFalse
+  
+  val dryRunOpt: Opts[Boolean] = Opts.flag("dry-run", help = "Infer schema only, don't convert")
+    .orFalse
   
   val command: Command[Unit] = Command(
     name = "convert",
-    header = "Convert XML file to modern formats with interactive prompts"
+    header = "Convert XML file to modern formats"
   ) {
-    Opts.pure {
-      try {
-        // Interactive input
-        val input = interactiveInputFile()
-        val output = interactiveOutputFile(input.getName)
-        val format = interactiveFormatSelection()
-        val (pretty, validate, dryRun) = interactiveConfiguration()
+    (inputOpt, outputOpt, formatOpt, configOpt, prettyOpt, validateOpt, dryRunOpt).mapN {
+      (input, output, format, configFile, pretty, validate, dryRun) =>
         
-        println(s"\n🔄 Converting ${input.getName} to $format...")
+        println(s"🔄 Converting ${input.getName} to ${format}...")
         
-        // Use default config
-        val config = ConfigLoader.defaultConfig(input.getAbsolutePath, output.getAbsolutePath)
+        // Load or create config
+        val config = configFile match {
+          case Some(cf) =>
+            println(s"Loading config from ${cf.getName}")
+            ConfigLoader.loadFromFile(cf).getOrElse {
+              println(s"Warning: Failed to load config from ${cf.getName}, using defaults")
+              ConfigLoader.defaultConfig(input.getAbsolutePath, output.getAbsolutePath)
+            }
+          case None =>
+            ConfigLoader.defaultConfig(input.getAbsolutePath, output.getAbsolutePath)
+        }
         
-        // Override config with interactive options
+        // Override config with CLI options
         val finalConfig = config.copy(
           output = config.output.copy(
             format = format,
@@ -134,11 +79,11 @@ object ConvertCommand {
         val schemaResult = inferrer.infer(input, finalConfig.schema)
         
         schemaResult match {
-          case Success(schema) =>
-            println(s"Schema inferred: ${schema.fields.size} fields")
+          case scala.util.Success(schema) =>
+            println(s"✓ Schema inferred: ${schema.fields.size} fields")
             
             if (dryRun) {
-              println("\n📋 Dry run - schema preview:")
+              println("\n📋 Schema preview:")
               schema.fields.foreach { case (name, field) =>
                 val arrayMarker = if (field.isArray) "[]" else ""
                 println(s"  $name: ${field.dataType}$arrayMarker")
@@ -155,24 +100,19 @@ object ConvertCommand {
               }
               
               converter.convert(input, schema, finalConfig.output, None) match {
-                case Success(outputFile) =>
+                case scala.util.Success(outputFile) =>
                   println(s"✅ Successfully converted to ${outputFile.getAbsolutePath}")
                   
-                case Failure(ex) =>
+                case scala.util.Failure(ex) =>
                   println(s"❌ Conversion failed: ${ex.getMessage}")
                   sys.exit(1)
               }
             }
             
-          case Failure(ex) =>
+          case scala.util.Failure(ex) =>
             println(s"❌ Schema inference failed: ${ex.getMessage}")
             sys.exit(1)
         }
-      } catch {
-        case ex: Exception =>
-          println(s"❌ Unexpected error: ${ex.getMessage}")
-          sys.exit(1)
-      }
     }
   }
 }
