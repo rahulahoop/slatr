@@ -147,6 +147,71 @@ check:
 	@echo ""
 	@echo "Run 'just status' for more detailed project status"
 
+# ── PostgreSQL playground ──────────────────────────────────────
+
+# Start PostgreSQL playground (seeded with sample data)
+pg-start:
+	@echo "Starting PostgreSQL playground..."
+	docker compose up -d postgres
+	@echo ""
+	@echo "Waiting for PostgreSQL to be ready..."
+	@for i in $$(seq 1 15); do \
+		if docker exec slatr-postgres pg_isready -U slatr -d music_metadata > /dev/null 2>&1; then \
+			echo "PostgreSQL is ready."; \
+			break; \
+		fi; \
+		sleep 1; \
+	done
+	@echo ""
+	@echo "Connection details:"
+	@echo "  Host:     localhost"
+	@echo "  Port:     5432"
+	@echo "  Database: music_metadata"
+	@echo "  Username: slatr"
+	@echo "  Password: slatr"
+	@echo "  JDBC URL: jdbc:postgresql://localhost:5432/music_metadata"
+	@echo ""
+	@echo "Quick commands:"
+	@echo "  just pg-psql                      # open psql shell"
+	@echo "  just pg-load examples/out.xml      # load a DDEX XML"
+	@echo "  just pg-query 'SELECT * FROM ddex_releases_flat'"
+	@echo ""
+	@echo "DBeaver: see docs/POSTGRES_PLAYGROUND.md"
+
+# Stop PostgreSQL playground
+pg-stop:
+	docker compose down
+	@echo "PostgreSQL stopped."
+
+# Reset PostgreSQL (destroy data volume and recreate)
+pg-reset:
+	docker compose down -v
+	@echo "Volume removed. Run 'just pg-start' to recreate."
+
+# Open a psql shell in the playground
+pg-psql:
+	docker exec -it slatr-postgres psql -U slatr -d music_metadata
+
+# Run a SQL query against the playground
+pg-query sql:
+	docker exec slatr-postgres psql -U slatr -d music_metadata -c "{{sql}}"
+
+# Load a DDEX XML file into the playground via slatr
+pg-load file="examples/out.xml":
+	./scripts/load-ddex-to-postgres-local.sh "{{file}}"
+
+# Show tables and row counts in the playground
+pg-status:
+	@docker exec slatr-postgres psql -U slatr -d music_metadata -c "\dt public.*"
+	@echo ""
+	@docker exec slatr-postgres psql -U slatr -d music_metadata -c "SELECT 'ddex_releases' AS table_name, COUNT(*) FROM ddex_releases UNION ALL SELECT 'products', COUNT(*) FROM products;"
+
+# Run PostgreSQL integration tests (uses Testcontainers, not the playground)
+pg-test:
+	sbt "integrationTests/testOnly *PostgreSQLIntegrationSpec"
+
+# ── Documentation ─────────────────────────────────────────────
+
 # Generate API documentation
 docs:
 	sbt doc
