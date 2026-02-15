@@ -16,30 +16,32 @@ import java.io.File
  * System properties (set via sbt -D flags):
  *   slatr.pg.host, slatr.pg.port, slatr.pg.database,
  *   slatr.pg.user, slatr.pg.password,
- *   slatr.pg.table    -- target table (single-file mode)
- *   slatr.pg.xmlFile  -- path to a single XML file (default: examples/out.xml)
+ *   slatr.pg.table    -- target table name override
+ *   slatr.pg.xmlFile  -- path to a single XML file
  *   slatr.pg.xmlDir   -- path to a directory; loads every *.xml inside
+ *                        (default: "examples")
  *   slatr.pg.mode     -- "firebase" (default) or "traditional"
  *
- * When xmlDir is set, xmlFile is ignored. In firebase mode, all files go
- * into a single "ddex_releases" table by default. In traditional mode,
- * each file is loaded into a table named after the file (sanitised),
- * e.g. "42_audio" for "42_Audio.xml". Setting slatr.pg.table overrides
- * the table name in either mode.
+ * If xmlFile is set, only that file is loaded. Otherwise xmlDir is used
+ * (defaults to "examples"). In firebase mode all files go into a single
+ * "ddex_releases" table. In traditional mode each file gets its own table
+ * named after the file (sanitised). Setting slatr.pg.table overrides the
+ * table name in either mode.
  *
  * Examples:
- *   # Single file, firebase model
+ *   # All examples XML files, firebase model (default)
  *   sbt "core/runMain io.slatr.tools.LoadToPostgres"
  *
- *   # All examples, firebase
- *   sbt -Dslatr.pg.xmlDir=examples "core/runMain io.slatr.tools.LoadToPostgres"
- *
- *   # All examples, traditional columns
- *   sbt -Dslatr.pg.xmlDir=examples -Dslatr.pg.mode=traditional \
+ *   # Single file
+ *   sbt -Dslatr.pg.xmlFile=examples/43_Audio.xml \
  *       "core/runMain io.slatr.tools.LoadToPostgres"
  *
- *   # All examples into one table
- *   sbt -Dslatr.pg.xmlDir=examples -Dslatr.pg.table=all_xml \
+ *   # All examples, traditional columns
+ *   sbt -Dslatr.pg.mode=traditional \
+ *       "core/runMain io.slatr.tools.LoadToPostgres"
+ *
+ *   # Custom directory
+ *   sbt -Dslatr.pg.xmlDir=/tmp/my-xml \
  *       "core/runMain io.slatr.tools.LoadToPostgres"
  */
 object LoadToPostgres {
@@ -51,8 +53,8 @@ object LoadToPostgres {
     val user     = sys.props.getOrElse("slatr.pg.user", "slatr")
     val password = sys.props.getOrElse("slatr.pg.password", "slatr")
     val tableOpt = sys.props.get("slatr.pg.table")
-    val xmlDir   = sys.props.get("slatr.pg.xmlDir")
-    val xmlFile  = sys.props.getOrElse("slatr.pg.xmlFile", "examples/out.xml")
+    val xmlFile  = sys.props.get("slatr.pg.xmlFile")
+    val xmlDir   = sys.props.getOrElse("slatr.pg.xmlDir", "examples")
     val mode     = sys.props.getOrElse("slatr.pg.mode", "firebase")
 
     val useFirebase = mode.toLowerCase match {
@@ -66,16 +68,17 @@ object LoadToPostgres {
 
     val modeLabel = if (useFirebase) "firebase (JSONB)" else "traditional (columns)"
 
-    // Resolve list of XML files to load
-    val xmlFiles: Seq[File] = xmlDir match {
-      case Some(dir) =>
-        val d = new File(dir)
-        require(d.isDirectory, s"Not a directory: ${d.getAbsolutePath}")
-        d.listFiles().filter(f => f.isFile && f.getName.endsWith(".xml")).sorted.toSeq
-      case None =>
-        val f = new File(xmlFile)
+    // Resolve list of XML files to load.
+    // If xmlFile is set, load only that file; otherwise load every *.xml in xmlDir.
+    val xmlFiles: Seq[File] = xmlFile match {
+      case Some(path) =>
+        val f = new File(path)
         require(f.exists(), s"XML file not found: ${f.getAbsolutePath}")
         Seq(f)
+      case None =>
+        val d = new File(xmlDir)
+        require(d.isDirectory, s"Not a directory: ${d.getAbsolutePath}")
+        d.listFiles().filter(f => f.isFile && f.getName.endsWith(".xml")).sorted.toSeq
     }
 
     require(xmlFiles.nonEmpty, "No XML files found")
