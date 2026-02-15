@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<items>
+  <item>
+    <name>Item with multiple tags</name>
+    <tags>
+      <tag>urgent</tag>
+      <tag>review</tag>
+    </tags>
+  </item>
+  <item>
+    <name>Item with single tag</name>
+    <tags>
+      <tag>archived</tag>
+    </tags>
+  </item>
+  <item>
+    <name>Item with no tags</name>
+  </item>
+</items>

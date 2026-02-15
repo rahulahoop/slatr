@@ -76,6 +76,45 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
     val tags = record("tags").asInstanceOf[List[_]]
     tags should have size 1
   }
+
+  it should "always represent child elements as arrays regardless of count" in {
+    val file = getTestResource("test-array-consistency.xml")
+    val result = parser.parse(file, None)
+
+    result.isSuccess shouldBe true
+    val items = result.get.toList
+    items should have size 3
+
+    // --- Item 0: multiple <tag> children inside <tags> ---
+    val multi = items(0)
+    val multiName = multi("name").asInstanceOf[List[Map[String, Any]]].head("#text")
+    multiName shouldBe "Item with multiple tags"
+
+    val multiTags = multi("tags").asInstanceOf[List[Map[String, Any]]]
+    multiTags should have size 1 // one <tags> element
+    val multiTagList = multiTags.head("tag").asInstanceOf[List[Map[String, Any]]]
+    multiTagList should have size 2
+    multiTagList.map(_("#text")) shouldBe List("urgent", "review")
+
+    // --- Item 1: single <tag> child inside <tags> ---
+    val single = items(1)
+    val singleName = single("name").asInstanceOf[List[Map[String, Any]]].head("#text")
+    singleName shouldBe "Item with single tag"
+
+    val singleTags = single("tags").asInstanceOf[List[Map[String, Any]]]
+    singleTags should have size 1
+    val singleTagList = singleTags.head("tag").asInstanceOf[List[Map[String, Any]]]
+    singleTagList should have size 1 // MUST still be a List, not a scalar
+    singleTagList.head("#text") shouldBe "archived"
+
+    // Key assertion: both multi and single <tag> entries have the same type (List)
+    multiTagList shouldBe a[List[_]]
+    singleTagList shouldBe a[List[_]]
+
+    // --- Item 2: no <tags> element at all ---
+    val noTags = items(2)
+    noTags should not contain key ("tags")
+  }
   
   it should "extract text content from simple elements" in {
     val file = getTestResource("test-simple.xml")
