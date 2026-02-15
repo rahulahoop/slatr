@@ -16,7 +16,13 @@ just pg-psql
 # Run a query
 just pg-query "SELECT * FROM ddex_releases_flat;"
 
-# Load a real DDEX XML file
+# Load ALL example XMLs (firebase JSONB model -- recommended)
+just pg-load-all
+
+# Load ALL example XMLs (traditional columnar model)
+just pg-load-all mode=traditional
+
+# Load a single file
 just pg-load examples/out.xml
 
 # Stop (data persists across restarts)
@@ -162,23 +168,57 @@ FROM ddex_releases,
 ORDER BY field_name;
 ```
 
-## Loading Real DDEX XML
+## Loading XML Files
 
-Use the loader script (or `just pg-load`):
+### Load all examples at once
 
 ```bash
-# Default: loads examples/out.xml
-just pg-load
+# Firebase JSONB model (recommended -- works with all XML files)
+just pg-load-all
 
-# Specific file
-just pg-load examples/bout.xml
+# Traditional columnar model (works with simple XMLs; complex DDEX
+# schemas may fail due to nested structures)
+just pg-load-all mode=traditional
+```
 
-# Or call the script directly with env overrides
+Each XML file gets its own table named after the file (`out.xml` -> `out`,
+`42_Audio.xml` -> `ddex_42_audio`, etc.).
+
+### Load a single file
+
+```bash
+just pg-load examples/out.xml
+just pg-load examples/bout.xml mode=traditional
+```
+
+### Direct script usage
+
+```bash
+# Load all examples with firebase model
+./scripts/load-ddex-to-postgres-local.sh --all --firebase
+
+# Load all into traditional columns
+./scripts/load-ddex-to-postgres-local.sh --all --traditional
+
+# Load into a specific table
+./scripts/load-ddex-to-postgres-local.sh --all --table all_releases
+
+# Single file with env overrides
 PGTABLE=my_table ./scripts/load-ddex-to-postgres-local.sh path/to/file.xml
 ```
 
-The loader uses slatr's `SchemaInferrer` + `PostgreSQLWriter` with the Firebase
-JSONB model, so any XML file works regardless of its schema.
+### Firebase vs Traditional
+
+| | Firebase (JSONB) | Traditional (columns) |
+|---|---|---|
+| Model | `data JSONB` column with `[{"name":"...","value":"..."}]` | One column per XML field |
+| Complex DDEX | Works for all files (25/25) | Fails for deeply-nested XML |
+| Simple XML | Works | Works |
+| Querying | JSONB operators (`@>`, `->>`), views | Standard SQL |
+| Schema evolution | Automatic (different fields per row) | Requires ALTER TABLE |
+
+Use **firebase** for DDEX and complex XML. Use **traditional** for simple,
+flat XML files where you want typed columns.
 
 ## Environment Variables
 

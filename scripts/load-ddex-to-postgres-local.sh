@@ -1,11 +1,20 @@
 #!/bin/bash
 
-# Load DDEX ERN XML files into the local PostgreSQL playground.
+# Load XML files into the local PostgreSQL playground.
 # The playground must be running: docker compose up -d postgres
 #
 # Usage:
-#   ./scripts/load-ddex-to-postgres-local.sh              # loads examples/out.xml
-#   ./scripts/load-ddex-to-postgres-local.sh path/to.xml   # loads a specific file
+#   ./scripts/load-ddex-to-postgres-local.sh                          # load examples/out.xml (firebase)
+#   ./scripts/load-ddex-to-postgres-local.sh --all                    # load ALL examples/*.xml (firebase)
+#   ./scripts/load-ddex-to-postgres-local.sh --all --traditional      # load ALL examples/*.xml (columnar)
+#   ./scripts/load-ddex-to-postgres-local.sh --traditional file.xml   # load one file (columnar)
+#   ./scripts/load-ddex-to-postgres-local.sh --all --table my_tbl     # load all into one table
+#
+# Flags:
+#   --all           Load every *.xml in examples/
+#   --traditional   Use traditional columnar schema (default: firebase JSONB)
+#   --firebase      Use firebase JSONB model (default)
+#   --table NAME    Force all files into a single table NAME
 
 set -e
 
@@ -14,35 +23,60 @@ DB_PORT="${PGPORT:-5432}"
 DB_NAME="${PGDATABASE:-music_metadata}"
 DB_USER="${PGUSER:-slatr}"
 DB_PASS="${PGPASSWORD:-slatr}"
-TABLE="${PGTABLE:-ddex_releases}"
-XML_FILE="${1:-examples/out.xml}"
+MODE="firebase"
+LOAD_ALL=false
+TABLE=""
+XML_FILE=""
 
-echo "PostgreSQL DDEX Loader"
-echo "======================"
+# Parse arguments
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --all|-a)
+            LOAD_ALL=true
+            shift
+            ;;
+        --traditional|--trad|--columns)
+            MODE="traditional"
+            shift
+            ;;
+        --firebase|--jsonb|--fb)
+            MODE="firebase"
+            shift
+            ;;
+        --table|-t)
+            TABLE="$2"
+            shift 2
+            ;;
+        -*)
+            echo "Unknown flag: $1"
+            echo "Usage: $0 [--all] [--traditional|--firebase] [--table NAME] [file.xml]"
+            exit 1
+            ;;
+        *)
+            XML_FILE="$1"
+            shift
+            ;;
+    esac
+done
+
+echo "PostgreSQL XML Loader"
+echo "====================="
 echo ""
 echo "  Host:     $DB_HOST:$DB_PORT"
 echo "  Database: $DB_NAME"
-echo "  Table:    $TABLE"
-echo "  XML file: $XML_FILE"
-echo ""
+echo "  Mode:     $MODE"
 
 # --- pre-flight checks ---
-if [ ! -f "$XML_FILE" ]; then
-    echo "Error: XML file not found: $XML_FILE"
-    exit 1
-fi
-
 if ! docker ps --format '{{.Names}}' | grep -q slatr-postgres; then
+    echo ""
     echo "Error: slatr-postgres container is not running."
-    echo "Start it with:  docker compose up -d postgres"
+    echo "Start it with:  just pg-start"
     exit 1
 fi
 
-# Wait for postgres to be healthy
-echo "Checking PostgreSQL is ready..."
+echo "  Checking PostgreSQL is ready..."
 for i in $(seq 1 10); do
     if docker exec slatr-postgres pg_isready -U "$DB_USER" -d "$DB_NAME" > /dev/null 2>&1; then
-        echo "  PostgreSQL is ready."
         break
     fi
     if [ "$i" -eq 10 ]; then
@@ -52,22 +86,33 @@ for i in $(seq 1 10); do
     sleep 1
 done
 
-echo ""
-echo "Loading $XML_FILE into $TABLE via sbt..."
+# Build sbt -D flags
+SBT_PROPS=(
+    "-Dslatr.pg.host=$DB_HOST"
+    "-Dslatr.pg.port=$DB_PORT"
+    "-Dslatr.pg.database=$DB_NAME"
+    "-Dslatr.pg.user=$DB_USER"
+    "-Dslatr.pg.password=$DB_PASS"
+    "-Dslatr.pg.mode=$MODE"
+)
+
+if [ -n "$TABLE" ]; then
+    SBT_PROPS+=("-Dslatr.pg.table=$TABLE")
+fi
+
+if [ "$LOAD_ALL" = true ]; then
+    SBT_PROPS+=("-Dslatr.pg.xmlDir=examples")
+    echo "  Loading: all *.xml in examples/"
+else
+    FILE="${XML_FILE:-examples/out.xml}"
+    if [ ! -f "$FILE" ]; then
+        echo "Error: XML file not found: $FILE"
+        exit 1
+    fi
+    SBT_PROPS+=("-Dslatr.pg.xmlFile=$FILE")
+    echo "  Loading: $FILE"
+fi
+
 echo ""
 
-# Run sbt with a one-off main that invokes PostgreSQLWriter.
-# We pass the config as system properties so the Scala code can pick them up.
-sbt \
-  -Dslatr.pg.host="$DB_HOST" \
-  -Dslatr.pg.port="$DB_PORT" \
-  -Dslatr.pg.database="$DB_NAME" \
-  -Dslatr.pg.user="$DB_USER" \
-  -Dslatr.pg.password="$DB_PASS" \
-  -Dslatr.pg.table="$TABLE" \
-  -Dslatr.pg.xmlFile="$XML_FILE" \
-  "core/runMain io.slatr.tools.LoadToPostgres"
-
-echo ""
-echo "Done. Query the data with:"
-echo "  docker exec -it slatr-postgres psql -U $DB_USER -d $DB_NAME -c \"SELECT * FROM ddex_releases_flat;\""
+sbt "${SBT_PROPS[@]}" "core/runMain io.slatr.tools.LoadToPostgres"

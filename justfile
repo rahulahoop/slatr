@@ -155,11 +155,12 @@ pg-start:
 	docker compose up -d postgres
 	@echo ""
 	@echo "Waiting for PostgreSQL to be ready..."
-	@for i in $$(seq 1 15); do \
+	@i=0; while [ "$$i" -lt 15 ]; do \
 		if docker exec slatr-postgres pg_isready -U slatr -d music_metadata > /dev/null 2>&1; then \
 			echo "PostgreSQL is ready."; \
 			break; \
 		fi; \
+		i=$$((i + 1)); \
 		sleep 1; \
 	done
 	@echo ""
@@ -196,15 +197,19 @@ pg-psql:
 pg-query sql:
 	docker exec slatr-postgres psql -U slatr -d music_metadata -c "{{sql}}"
 
-# Load a DDEX XML file into the playground via slatr
-pg-load file="examples/out.xml":
-	./scripts/load-ddex-to-postgres-local.sh "{{file}}"
+# Load a single XML file (firebase model by default)
+pg-load file="examples/out.xml" mode="firebase":
+	./scripts/load-ddex-to-postgres-local.sh --{{mode}} "{{file}}"
+
+# Load ALL examples/*.xml (firebase model by default, one table per file)
+pg-load-all mode="firebase":
+	./scripts/load-ddex-to-postgres-local.sh --all --{{mode}}
 
 # Show tables and row counts in the playground
 pg-status:
 	@docker exec slatr-postgres psql -U slatr -d music_metadata -c "\dt public.*"
 	@echo ""
-	@docker exec slatr-postgres psql -U slatr -d music_metadata -c "SELECT 'ddex_releases' AS table_name, COUNT(*) FROM ddex_releases UNION ALL SELECT 'products', COUNT(*) FROM products;"
+	@docker exec slatr-postgres psql -U slatr -d music_metadata -c "SELECT schemaname||'.'||relname AS table_name, n_live_tup AS row_count FROM pg_stat_user_tables ORDER BY relname;"
 
 # Run PostgreSQL integration tests (uses Testcontainers, not the playground)
 pg-test:

@@ -18,6 +18,35 @@ class PostgreSQLWriter(
 ) extends LazyLogging {
 
   /**
+   * Deduplicated mapping from original field name to (clean column name, Field).
+   * When truncation to 63 chars causes collisions, a numeric suffix is appended.
+   * Uses a set of all assigned names to avoid multi-level collisions.
+   */
+  private lazy val columnMapping: Seq[(String, String, io.slatr.model.Field)] = {
+    val counts  = scala.collection.mutable.Map.empty[String, Int]
+    val assigned = scala.collection.mutable.Set.empty[String]
+
+    schema.fields.toSeq.map { case (origName, field) =>
+      val base = cleanFieldName(origName)
+      if (!assigned.contains(base)) {
+        counts(base) = 0
+        assigned += base
+        (origName, base, field)
+      } else {
+        var n = counts.getOrElse(base, 0) + 1
+        var candidate = s"${base.take(59)}_$n"
+        while (assigned.contains(candidate)) {
+          n += 1
+          candidate = s"${base.take(59)}_$n"
+        }
+        counts(base) = n
+        assigned += candidate
+        (origName, candidate, field)
+      }
+    }
+  }
+
+  /**
    * Write data rows directly to PostgreSQL table
    */
   def write(rows: Iterator[Map[String, Any]]): String = {
@@ -155,12 +184,10 @@ class PostgreSQLWriter(
    * Create traditional table with columns for each field
    */
   private def createTraditionalTableSql(): String = {
-    // Use _id instead of id to avoid conflicts with user data
-    val columns = schema.fields.map { case (name, field) =>
-      val cleanName = cleanFieldName(name)
+    val columns = columnMapping.map { case (_, colName, field) =>
       val sqlType = dataTypeToPostgreSQLType(field.dataType)
       val nullable = if (field.nullable) "NULL" else "NOT NULL"
-      s"  $cleanName $sqlType $nullable"
+      s"  $colName $sqlType $nullable"
     }.mkString(",\n")
 
     s"""
@@ -183,8 +210,8 @@ class PostgreSQLWriter(
    * Create traditional insert SQL
    */
   private def createTraditionalInsertSql(): String = {
-    val fieldNames = schema.fields.keys.map(cleanFieldName).mkString(", ")
-    val placeholders = schema.fields.keys.map(_ => "?").mkString(", ")
+    val fieldNames = columnMapping.map(_._2).mkString(", ")
+    val placeholders = columnMapping.map(_ => "?").mkString(", ")
     s"INSERT INTO ${config.schema}.${config.table} ($fieldNames) VALUES ($placeholders)"
   }
 
@@ -208,8 +235,8 @@ class PostgreSQLWriter(
   private def setTraditionalParameters(stmt: PreparedStatement, row: Map[String, Any]): Unit = {
     var paramIndex = 1
     
-    schema.fields.foreach { case (fieldName, field) =>
-      val value = row.get(fieldName)
+    columnMapping.foreach { case (origName, _, field) =>
+      val value = row.get(origName)
       
       value match {
         case None | Some(null) =>
@@ -241,19 +268,40 @@ class PostgreSQLWriter(
         stmt.setBoolean(index, value.toString.toBoolean)
         
       case DataType.TimestampType =>
-        stmt.setTimestamp(index, java.sql.Timestamp.valueOf(value.toString))
+        val ts = Try(java.sql.Timestamp.valueOf(value.toString))
+          .orElse(Try {
+            val instant = java.time.OffsetDateTime.parse(value.toString).toInstant
+            java.sql.Timestamp.from(instant)
+          })
+          .orElse(Try {
+            val instant = java.time.Instant.parse(value.toString)
+            java.sql.Timestamp.from(instant)
+          })
+          .getOrElse {
+            // Last resort: store as text
+            stmt.setString(index, value.toString)
+            return
+          }
+        stmt.setTimestamp(index, ts)
         
       case DataType.DateType =>
         stmt.setDate(index, java.sql.Date.valueOf(value.toString))
         
-      case DataType.ArrayType(_) =>
-        // For arrays, store as JSONB
-        val jsonArray = value match {
-          case list: List[_] => list.mkString("[\"", "\",\"", "\"]")
-          case _ => s"""["$value"]"""
+      case DataType.ArrayType(_) | DataType.StructType(_) =>
+        // For arrays and structs, store as JSONB via PGobject
+        val jsonStr = value match {
+          case list: List[_] => list.map(v => s""""${escapeJson(v.toString)}"""").mkString("[", ",", "]")
+          case map: Map[_, _] =>
+            map.asInstanceOf[Map[String, Any]].map { case (k, v) =>
+              s""""${escapeJson(k)}":"${escapeJson(v.toString)}""""
+            }.mkString("{", ",", "}")
+          case _ => s""""${escapeJson(value.toString)}""""
         }
-        stmt.setString(index, jsonArray)
-        
+        val pgObj = new org.postgresql.util.PGobject()
+        pgObj.setType("jsonb")
+        pgObj.setValue(jsonStr)
+        stmt.setObject(index, pgObj)
+
       case _ =>
         stmt.setString(index, value.toString)
     }
@@ -289,6 +337,7 @@ class PostgreSQLWriter(
     case DataType.TimestampType => Types.TIMESTAMP
     case DataType.TimeType => Types.TIME
     case DataType.DecimalType(_, _) => Types.NUMERIC
+    case DataType.ArrayType(_) | DataType.StructType(_) => Types.OTHER  // JSONB
     case _ => Types.VARCHAR
   }
 
