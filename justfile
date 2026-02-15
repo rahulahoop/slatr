@@ -155,14 +155,12 @@ pg-start:
 	docker compose up -d postgres
 	@echo ""
 	@echo "Waiting for PostgreSQL to be ready..."
-	@i=0; while [ "$$i" -lt 15 ]; do \
-		if docker exec slatr-postgres pg_isready -U slatr -d music_metadata > /dev/null 2>&1; then \
-			echo "PostgreSQL is ready."; \
-			break; \
-		fi; \
-		i=$$((i + 1)); \
-		sleep 1; \
-	done
+	@sleep 3
+	@docker exec slatr-postgres pg_isready -U slatr -d music_metadata > /dev/null 2>&1 || sleep 2
+	@docker exec slatr-postgres pg_isready -U slatr -d music_metadata > /dev/null 2>&1 || sleep 2
+	@docker exec slatr-postgres pg_isready -U slatr -d music_metadata > /dev/null 2>&1 || sleep 2
+	@docker exec slatr-postgres pg_isready -U slatr -d music_metadata > /dev/null 2>&1 || (echo "Error: PostgreSQL not ready after 9s" && exit 1)
+	@echo "PostgreSQL is ready."
 	@echo ""
 	@echo "Connection details:"
 	@echo "  Host:     localhost"
