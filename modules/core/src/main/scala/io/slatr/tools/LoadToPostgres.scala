@@ -21,10 +21,11 @@ import java.io.File
  *   slatr.pg.xmlDir   -- path to a directory; loads every *.xml inside
  *   slatr.pg.mode     -- "firebase" (default) or "traditional"
  *
- * When xmlDir is set, xmlFile is ignored. Each file is loaded into a table
- * named after the file (sanitised), e.g. "42_audio" for "42_Audio.xml".
- * If slatr.pg.table is also set while using xmlDir, all files go into that
- * single table instead.
+ * When xmlDir is set, xmlFile is ignored. In firebase mode, all files go
+ * into a single "ddex_releases" table by default. In traditional mode,
+ * each file is loaded into a table named after the file (sanitised),
+ * e.g. "42_audio" for "42_Audio.xml". Setting slatr.pg.table overrides
+ * the table name in either mode.
  *
  * Examples:
  *   # Single file, firebase model
@@ -95,7 +96,9 @@ object LoadToPostgres {
     var failed  = 0
 
     xmlFiles.foreach { file =>
-      val tableName = tableOpt.getOrElse(tableNameFromFile(file))
+      val tableName = tableOpt.getOrElse(
+        if (useFirebase) "ddex_releases" else tableNameFromFile(file)
+      )
       print(s"  ${file.getName} -> $tableName ... ")
 
       try {

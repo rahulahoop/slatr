@@ -5,7 +5,7 @@ import io.slatr.model.{DataType, PostgreSQLConfig, Schema, WriteMode}
 import io.slatr.parser.XmlStreamParser
 
 import java.io.File
-import java.sql.{Connection, DriverManager, PreparedStatement, SQLException, Types}
+import java.sql.{Connection, DriverManager, PreparedStatement, Types}
 import scala.util.{Try, Using}
 
 /**
@@ -217,16 +217,13 @@ class PostgreSQLWriter(
 
   /**
    * Set Firebase model parameters (JSONB)
+   *
+   * Serialises the entire row as a proper JSON object so that PostgreSQL
+   * JSONB operators work correctly on nested structures.
    */
   private def setFirebaseParameters(stmt: PreparedStatement, row: Map[String, Any]): Unit = {
-    // Convert row to JSON format
-    val jsonFields = row.flatMap { case (key, value) =>
-      convertToFirebaseField(key, value).map { field =>
-        s"""{"name":"$key","value":"${escapeJson(field.toString)}"}"""
-      }
-    }.mkString("[", ",", "]")
-
-    stmt.setString(1, jsonFields)
+    val json = toJson(row)
+    stmt.setString(1, json)
   }
 
   /**
@@ -289,17 +286,9 @@ class PostgreSQLWriter(
         
       case DataType.ArrayType(_) | DataType.StructType(_) =>
         // For arrays and structs, store as JSONB via PGobject
-        val jsonStr = value match {
-          case list: List[_] => list.map(v => s""""${escapeJson(v.toString)}"""").mkString("[", ",", "]")
-          case map: Map[_, _] =>
-            map.asInstanceOf[Map[String, Any]].map { case (k, v) =>
-              s""""${escapeJson(k)}":"${escapeJson(v.toString)}""""
-            }.mkString("{", ",", "}")
-          case _ => s""""${escapeJson(value.toString)}""""
-        }
         val pgObj = new org.postgresql.util.PGobject()
         pgObj.setType("jsonb")
-        pgObj.setValue(jsonStr)
+        pgObj.setValue(toJson(value))
         stmt.setObject(index, pgObj)
 
       case _ =>
@@ -342,19 +331,28 @@ class PostgreSQLWriter(
   }
 
   /**
-   * Convert a key-value pair to Firebase field format
+   * Recursively convert an arbitrary Scala value (String, Number, Boolean,
+   * Map, List/Seq, etc.) into a valid JSON string.
    */
-  private def convertToFirebaseField(key: String, value: Any): Option[String] = {
-    value match {
-      case null => Some("null")
-      case list: List[_] =>
-        list.headOption.map(_.toString)
-      case map: Map[_, _] =>
-        val mapValue = map.asInstanceOf[Map[String, Any]]
-        mapValue.get("#text").map(_.toString).orElse(mapValue.headOption.map(_._2.toString))
-      case scalar =>
-        Some(scalar.toString)
-    }
+  private def toJson(value: Any): String = value match {
+    case null                    => "null"
+    case s: String               => s""""${escapeJson(s)}""""
+    case b: Boolean              => b.toString
+    case n: Int                  => n.toString
+    case n: Long                 => n.toString
+    case n: Double               => n.toString
+    case n: Float                => n.toString
+    case n: BigDecimal           => n.toString
+    case n: java.math.BigDecimal => n.toPlainString
+    case n: Number               => n.toString
+    case map: Map[_, _] =>
+      map.asInstanceOf[Map[String, Any]].map { case (k, v) =>
+        s""""${escapeJson(k)}":${toJson(v)}"""
+      }.mkString("{", ",", "}")
+    case seq: Iterable[_] =>
+      seq.map(toJson).mkString("[", ",", "]")
+    case other =>
+      s""""${escapeJson(other.toString)}""""
   }
 
   /**

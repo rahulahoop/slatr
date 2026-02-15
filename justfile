@@ -199,7 +199,7 @@ pg-query sql:
 pg-load file="examples/out.xml" mode="firebase":
 	./scripts/load-ddex-to-postgres-local.sh --{{mode}} "{{file}}"
 
-# Load ALL examples/*.xml (firebase model by default, one table per file)
+# Load ALL examples/*.xml (firebase: single ddex_releases table; traditional: one table per file)
 pg-load-all mode="firebase":
 	./scripts/load-ddex-to-postgres-local.sh --all --{{mode}}
 
