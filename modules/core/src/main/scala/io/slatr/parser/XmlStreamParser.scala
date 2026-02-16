@@ -38,43 +38,30 @@ class XmlStreamParser extends LazyLogging {
   }
   
   /**
-   * Extract XSD URL from XML header
+   * Extract XSD URL from XML header (checks root element attributes only)
    */
   def extractXsdUrl(file: File): Option[String] = {
     Using(new FileInputStream(file)) { stream =>
       val reader = inputFactory.createXMLStreamReader(stream)
-      
+
       try {
-        while (reader.hasNext) {
-          reader.next() match {
-            case XMLStreamConstants.START_ELEMENT =>
-              // Check for xsi:schemaLocation attribute
-              val attributeCount = reader.getAttributeCount
-              for (i <- 0 until attributeCount) {
-                val attrName = reader.getAttributeLocalName(i)
-                if (attrName == "schemaLocation") {
-                  val value = reader.getAttributeValue(i)
-                  // schemaLocation format: "namespace url" - we want the URL (second one)
-                  val urls = value.split("\\s+").filter(_.startsWith("http"))
-                  if (urls.length >= 2) {
-                    return Some(urls(1)) // Take the schema URL, not the namespace
-                  } else if (urls.nonEmpty) {
-                    return Some(urls.head)
-                  }
-                } else if (attrName == "noNamespaceSchemaLocation") {
-                  val value = reader.getAttributeValue(i)
-                  // noNamespaceSchemaLocation format: just the URL
-                  if (value.startsWith("http")) {
-                    return Some(value.trim)
-                  }
-                }
-              }
-              // Only check root element
-              return None
-            case _ => // Continue
+        advanceToFirstStartElement(reader).flatMap { _ =>
+          val attrs = (0 until reader.getAttributeCount).map { i =>
+            reader.getAttributeLocalName(i) -> reader.getAttributeValue(i)
           }
+
+          attrs.collectFirst { case ("schemaLocation", value) => value }
+            .flatMap { value =>
+              val urls = value.split("\\s+").filter(_.startsWith("http"))
+              if (urls.length >= 2) Some(urls(1))
+              else urls.headOption
+            }
+            .orElse {
+              attrs.collectFirst { case ("noNamespaceSchemaLocation", value) if value.startsWith("http") =>
+                value.trim
+              }
+            }
         }
-        None
       } finally {
         reader.close()
       }
@@ -87,20 +74,21 @@ class XmlStreamParser extends LazyLogging {
   def getRootElementName(file: File): Option[String] = {
     Using(new FileInputStream(file)) { stream =>
       val reader = inputFactory.createXMLStreamReader(stream)
-      
+
       try {
-        while (reader.hasNext) {
-          reader.next() match {
-            case XMLStreamConstants.START_ELEMENT =>
-              return Some(reader.getLocalName)
-            case _ => // Continue
-          }
-        }
-        None
+        advanceToFirstStartElement(reader).map(_ => reader.getLocalName)
       } finally {
         reader.close()
       }
     }.toOption.flatten
+  }
+
+  /** Advance reader to the first START_ELEMENT, returning true if found, false if EOF. */
+  @scala.annotation.tailrec
+  private def advanceToFirstStartElement(reader: XMLStreamReader): Option[Unit] = {
+    if (!reader.hasNext) None
+    else if (reader.next() == XMLStreamConstants.START_ELEMENT) Some(())
+    else advanceToFirstStartElement(reader)
   }
 }
 
@@ -117,57 +105,55 @@ private class XmlElementIterator(
   private var finished = false
   
   override def hasNext: Boolean = {
-    if (finished) return false
-    
-    // Check if we've reached the end offset
-    endOffset.foreach { end =>
-      val currentPos = reader.getLocation.getCharacterOffset
-      if (currentPos >= end) {
-        finished = true
-        reader.close()
-        return false
-      }
+    if (finished) false
+    else if (pastEndOffset) {
+      finish()
+      false
     }
-    
-    if (currentElement.isDefined) return true
-    
-    // Parse next element
-    try {
-      while (reader.hasNext && currentElement.isEmpty) {
-        reader.next() match {
-          case XMLStreamConstants.START_ELEMENT =>
-            val elemName = reader.getLocalName
-            stack.push(elemName)
-            
-            // For now, we'll collect elements at depth 2 (children of root)
-            if (stack.size == 2) {
-              currentElement = Some(parseElement(reader, elemName))
-              stack.pop()
-            }
-            
-          case XMLStreamConstants.END_ELEMENT =>
-            if (stack.nonEmpty) stack.pop()
-            
-          case XMLStreamConstants.END_DOCUMENT =>
-            finished = true
-            reader.close()
-            return false
-            
-          case _ => // Ignore other event types
+    else if (currentElement.isDefined) true
+    else {
+      // Parse next element
+      try {
+        var foundEnd = false
+        while (reader.hasNext && currentElement.isEmpty && !foundEnd) {
+          reader.next() match {
+            case XMLStreamConstants.START_ELEMENT =>
+              val elemName = reader.getLocalName
+              stack.push(elemName)
+
+              // Collect elements at depth 2 (children of root)
+              if (stack.size == 2) {
+                currentElement = Some(parseElement(reader, elemName))
+                stack.pop()
+              }
+
+            case XMLStreamConstants.END_ELEMENT =>
+              if (stack.nonEmpty) stack.pop()
+
+            case XMLStreamConstants.END_DOCUMENT =>
+              foundEnd = true
+
+            case _ => // Ignore other event types
+          }
         }
+
+        if (currentElement.isEmpty) finish()
+        currentElement.isDefined
+      } catch {
+        case e: Exception =>
+          reader.close()
+          throw e
       }
-      
-      if (currentElement.isEmpty) {
-        finished = true
-        reader.close()
-      }
-      
-      currentElement.isDefined
-    } catch {
-      case e: Exception =>
-        reader.close()
-        throw e
     }
+  }
+
+  private def pastEndOffset: Boolean = endOffset.exists { end =>
+    reader.getLocation.getCharacterOffset >= end
+  }
+
+  private def finish(): Unit = {
+    finished = true
+    reader.close()
   }
   
   override def next(): Map[String, Any] = {

@@ -265,7 +265,7 @@ class PostgreSQLWriter(
         stmt.setBoolean(index, value.toString.toBoolean)
         
       case DataType.TimestampType =>
-        val ts = Try(java.sql.Timestamp.valueOf(value.toString))
+        Try(java.sql.Timestamp.valueOf(value.toString))
           .orElse(Try {
             val instant = java.time.OffsetDateTime.parse(value.toString).toInstant
             java.sql.Timestamp.from(instant)
@@ -273,13 +273,10 @@ class PostgreSQLWriter(
           .orElse(Try {
             val instant = java.time.Instant.parse(value.toString)
             java.sql.Timestamp.from(instant)
-          })
-          .getOrElse {
-            // Last resort: store as text
-            stmt.setString(index, value.toString)
-            return
+          }) match {
+            case scala.util.Success(ts) => stmt.setTimestamp(index, ts)
+            case scala.util.Failure(_)  => stmt.setString(index, value.toString) // last resort: store as text
           }
-        stmt.setTimestamp(index, ts)
         
       case DataType.DateType =>
         stmt.setDate(index, java.sql.Date.valueOf(value.toString))

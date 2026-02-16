@@ -22,16 +22,16 @@ class XsdResolver(config: XsdConfig) extends LazyLogging {
   def resolveFromXml(xmlFile: File, parser: io.slatr.parser.XmlStreamParser): Option[XsdSchema] = {
     if (!config.enabled) {
       logger.debug("XSD resolution disabled in config")
-      return None
-    }
-    
-    parser.extractXsdUrl(xmlFile) match {
-      case Some(url) =>
-        logger.info(s"Found XSD URL in XML header: $url")
-        resolve(url)
-      case None =>
-        logger.debug("No XSD URL found in XML header")
-        None
+      None
+    } else {
+      parser.extractXsdUrl(xmlFile) match {
+        case Some(url) =>
+          logger.info(s"Found XSD URL in XML header: $url")
+          resolve(url)
+        case None =>
+          logger.debug("No XSD URL found in XML header")
+          None
+      }
     }
   }
   

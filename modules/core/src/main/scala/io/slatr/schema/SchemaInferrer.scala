@@ -184,27 +184,14 @@ class SchemaInferrer(
    * Infer data type from string value
    */
   private def inferType(value: String): DataType = {
-    // Try boolean
-    if (value == "true" || value == "false") return DataType.BooleanType
-    
-    // Try integer
-    if (value.matches("-?\\d+")) {
-      return if (value.length <= 10) DataType.IntType else DataType.LongType
+    if (value == "true" || value == "false") DataType.BooleanType
+    else if (value.matches("-?\\d+")) {
+      if (value.length <= 10) DataType.IntType else DataType.LongType
     }
-    
-    // Try double
-    if (value.matches("-?\\d+\\.\\d+")) return DataType.DoubleType
-    
-    // Try timestamp (ISO 8601)
-    if (value.matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*")) {
-      return DataType.TimestampType
-    }
-    
-    // Try date
-    if (value.matches("\\d{4}-\\d{2}-\\d{2}")) return DataType.DateType
-    
-    // Default to string
-    DataType.StringType
+    else if (value.matches("-?\\d+\\.\\d+")) DataType.DoubleType
+    else if (value.matches("\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}.*")) DataType.TimestampType
+    else if (value.matches("\\d{4}-\\d{2}-\\d{2}")) DataType.DateType
+    else DataType.StringType
   }
   
   /**
@@ -232,38 +219,26 @@ class SchemaInferrer(
    * Apply manual overrides to an existing schema
    */
   private def applyOverrides(schema: Schema, overrides: SchemaOverrides): Schema = {
-    if (overrides.forceArrays.isEmpty && overrides.typeHints.isEmpty) {
-      return schema
-    }
-    
-    logger.info(s"Applying manual overrides: ${overrides.forceArrays.size} force-arrays, " +
-      s"${overrides.typeHints.size} type hints")
-    
-    var updated = schema
-    
-    // Apply force-arrays
-    overrides.forceArrays.foreach { path =>
-      updated.fields.get(path).foreach { field =>
-        updated = updated.withField(path, field.copy(isArray = true))
+    if (overrides.forceArrays.isEmpty && overrides.typeHints.isEmpty) schema
+    else {
+      logger.info(s"Applying manual overrides: ${overrides.forceArrays.size} force-arrays, " +
+        s"${overrides.typeHints.size} type hints")
+
+      val afterArrays = overrides.forceArrays.foldLeft(schema) { (acc, path) =>
+        acc.fields.get(path) match {
+          case Some(field) => acc.withField(path, field.copy(isArray = true))
+          case None        => acc
+        }
+      }
+
+      overrides.typeHints.foldLeft(afterArrays) { case (acc, (path, typeHint)) =>
+        val dataType = DataType.fromXsdType(typeHint)
+        acc.fields.get(path) match {
+          case Some(field) => acc.withField(path, field.copy(dataType = dataType))
+          case None        => acc.withField(path, Field(path, dataType, nullable = true, isArray = false))
+        }
       }
     }
-    
-    // Apply type hints
-    overrides.typeHints.foreach { case (path, typeHint) =>
-      val dataType = DataType.fromXsdType(typeHint)
-      updated.fields.get(path) match {
-        case Some(field) =>
-          updated = updated.withField(path, field.copy(dataType = dataType))
-        case None =>
-          // Create new field
-          updated = updated.withField(
-            path,
-            Field(path, dataType, nullable = true, isArray = false)
-          )
-      }
-    }
-    
-    updated
   }
 }
 

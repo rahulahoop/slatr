@@ -74,43 +74,43 @@ class XsdParser extends LazyLogging {
    */
   private def parseElement(elementNode: Element): Option[XsdElement] = {
     val name = elementNode.getAttribute("name")
-    if (name.isEmpty) return None
-    
-    val typeName = elementNode.getAttribute("type")
-    val dataType = if (typeName.nonEmpty) {
-      DataType.fromXsdType(typeName)
-    } else {
-      // Check for inline complexType or simpleType
-      val complexTypes = elementNode.getElementsByTagNameNS(XS_NAMESPACE, "complexType")
-      if (complexTypes.getLength > 0) {
-        // Has inline complex type - treat as struct
-        val fields = parseComplexType(complexTypes.item(0).asInstanceOf[Element], None)
-        DataType.StructType(fields.map { case (n, elem) =>
-          n -> io.slatr.model.Field(n, elem.dataType, !elem.isRequired, elem.isArray)
-        })
+    Option.when(name.nonEmpty) {
+      val typeName = elementNode.getAttribute("type")
+      val dataType = if (typeName.nonEmpty) {
+        DataType.fromXsdType(typeName)
       } else {
-        DataType.StringType // Default
+        // Check for inline complexType or simpleType
+        val complexTypes = elementNode.getElementsByTagNameNS(XS_NAMESPACE, "complexType")
+        if (complexTypes.getLength > 0) {
+          // Has inline complex type - treat as struct
+          val fields = parseComplexType(complexTypes.item(0).asInstanceOf[Element], None)
+          DataType.StructType(fields.map { case (n, elem) =>
+            n -> io.slatr.model.Field(n, elem.dataType, !elem.isRequired, elem.isArray)
+          })
+        } else {
+          DataType.StringType // Default
+        }
       }
+
+      val minOccurs = Option(elementNode.getAttribute("minOccurs"))
+        .filter(_.nonEmpty)
+        .map(_.toInt)
+        .getOrElse(1)
+
+      val maxOccurs = Option(elementNode.getAttribute("maxOccurs"))
+        .filter(_.nonEmpty)
+        .flatMap {
+          case "unbounded" => None
+          case num => Some(num.toInt)
+        }
+        .orElse(Some(1))
+
+      val nillable = Option(elementNode.getAttribute("nillable"))
+        .filter(_.nonEmpty)
+        .exists(_.toBoolean)
+
+      XsdElement(name, dataType, minOccurs, maxOccurs, nillable)
     }
-    
-    val minOccurs = Option(elementNode.getAttribute("minOccurs"))
-      .filter(_.nonEmpty)
-      .map(_.toInt)
-      .getOrElse(1)
-    
-    val maxOccurs = Option(elementNode.getAttribute("maxOccurs"))
-      .filter(_.nonEmpty)
-      .flatMap {
-        case "unbounded" => None
-        case num => Some(num.toInt)
-      }
-      .orElse(Some(1))
-    
-    val nillable = Option(elementNode.getAttribute("nillable"))
-      .filter(_.nonEmpty)
-      .exists(_.toBoolean)
-    
-    Some(XsdElement(name, dataType, minOccurs, maxOccurs, nillable))
   }
   
   /**
