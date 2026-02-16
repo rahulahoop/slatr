@@ -83,7 +83,7 @@ class XmlStreamParser extends LazyLogging {
     }.toOption.flatten
   }
 
-  /** Advance reader to the first START_ELEMENT, returning true if found, false if EOF. */
+  /** Advance reader to the first START_ELEMENT, returning Some(()) if found, None if EOF. */
   @scala.annotation.tailrec
   private def advanceToFirstStartElement(reader: XMLStreamReader): Option[Unit] = {
     if (!reader.hasNext) None
