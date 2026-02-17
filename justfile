@@ -97,6 +97,18 @@ it-local:
 	@echo "Stopping emulator..."
 	docker stop bigquery-emulator
 
+# Build and install slatr to /usr/local/bin (run `slatr` from anywhere)
+install:
+	./scripts/install.sh
+
+# Uninstall slatr
+uninstall:
+	@echo "Removing slatr..."
+	@rm -f ~/.local/bin/slatr 2>/dev/null || true
+	@sudo rm -f /usr/local/bin/slatr 2>/dev/null || true
+	@rm -rf ~/.local/share/slatr
+	@echo "Done."
+
 # Create a distributable package
 package:
 	@echo "Building JAR..."
