@@ -62,7 +62,15 @@ $SUDO chmod +x "$WRAPPER"
 if ! echo "$PATH" | tr ':' '\n' | grep -qx "$INSTALL_DIR"; then
   echo ""
   echo "NOTE: ${INSTALL_DIR} is not on your PATH."
-  echo "Add this to your shell profile (~/.zshrc, ~/.bashrc, etc.):"
+
+  # If fish is installed, add to fish PATH automatically
+  if command -v fish > /dev/null 2>&1; then
+    echo "Detected fish shell. Adding ${INSTALL_DIR} to fish PATH..."
+    fish -c "fish_add_path ${INSTALL_DIR}"
+  fi
+
+  # Also print instructions for bash/zsh in case they use those too
+  echo "For bash/zsh, add to your shell profile (~/.zshrc, ~/.bashrc):"
   echo "  export PATH=\"${INSTALL_DIR}:\$PATH\""
 fi
 
