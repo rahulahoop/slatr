@@ -93,91 +93,130 @@ class SchemaInferrer(
   ): Schema = {
     logger.info(s"Sampling up to ${samplingConfig.size} elements from XML")
     
-    val fieldTypes = mutable.Map[String, DataType]()
-    val fieldArrayness = mutable.Map[String, Boolean]()
-    val fieldCounts = mutable.Map[String, Int]()
+    val accumulatedFields = mutable.Map[String, Field]()
     
-    xmlParser.parse(file, None).foreach { iterator =>
-      iterator.take(samplingConfig.size).foreach { element =>
-        analyzeElement(element, fieldTypes, fieldArrayness, fieldCounts)
+    xmlParser.parseNamed(file).foreach { iterator =>
+      iterator.take(samplingConfig.size).foreach { case (elemName, contents) =>
+        // Each (elemName, contents) is a depth-2 child of the root.
+        // Build a field for this element — a StructType if it has sub-elements.
+        val field = inferField(elemName, contents)
+        accumulatedFields.get(elemName) match {
+          case Some(existing) =>
+            accumulatedFields(elemName) = mergeFields(existing, field)
+          case None =>
+            accumulatedFields(elemName) = field
+        }
       }
     }
     
-    logger.info(s"Inferred ${fieldTypes.size} fields from sampling")
-    
-    val fields = fieldTypes.map { case (name, dataType) =>
-      name -> Field(
-        name = name,
-        dataType = dataType,
-        nullable = true, // Default to nullable from sampling
-        isArray = fieldArrayness.getOrElse(name, false)
-      )
-    }.toMap
-    
-    Schema(rootElement, fields)
+    logger.info(s"Inferred ${accumulatedFields.size} fields from sampling")
+    Schema(rootElement, accumulatedFields.toMap)
   }
   
   /**
-   * Analyze a single element and update field type information
+   * Infer a Field from a parsed value (recursive).
+   * Builds StructType for maps, ArrayType for lists, and leaf types for strings.
    */
-  private def analyzeElement(
-    element: Map[String, Any],
-    fieldTypes: mutable.Map[String, DataType],
-    fieldArrayness: mutable.Map[String, Boolean],
-    fieldCounts: mutable.Map[String, Int],
-    prefix: String = ""
-  ): Unit = {
-    element.foreach { case (name, value) =>
-      val fullName = if (prefix.isEmpty) name else s"$prefix.$name"
-      fieldCounts(fullName) = fieldCounts.getOrElse(fullName, 0) + 1
-      
-      value match {
-        case list: List[_] =>
-          // It's a list - mark as array
-          fieldArrayness(fullName) = true
-          if (list.nonEmpty) {
-            list.head match {
-              case map: Map[_, _] =>
-                // List of objects
-                val structFields = mutable.Map[String, DataType]()
-                list.foreach { item =>
-                  analyzeElement(
-                    item.asInstanceOf[Map[String, Any]],
-                    fieldTypes,
-                    fieldArrayness,
-                    fieldCounts,
-                    fullName
-                  )
+  private def inferField(name: String, value: Any): Field = {
+    value match {
+      case list: List[_] =>
+        if (list.isEmpty) {
+          Field(name, DataType.StringType, nullable = true, isArray = true)
+        } else {
+          list.head match {
+            case _: Map[_, _] =>
+              // List of objects — infer type from all items, merge across them
+              val elemType = list.foldLeft(Option.empty[DataType]) { (acc, item) =>
+                val itemType = inferMapType(item.asInstanceOf[Map[String, Any]])
+                acc match {
+                  case None => Some(itemType)
+                  case Some(prev) => Some(mergeDataTypes(prev, itemType))
                 }
-              case _ =>
-                // List of primitives
-                val inferredType = inferType(list.head.toString)
-                fieldTypes(fullName) = DataType.ArrayType(inferredType)
-            }
+              }.getOrElse(DataType.StringType)
+              Field(name, elemType, nullable = true, isArray = true)
+            case _ =>
+              // List of primitives
+              val elemType = inferType(list.head.toString)
+              Field(name, elemType, nullable = true, isArray = true)
           }
-          
-        case map: Map[_, _] =>
-          // Nested object
-          analyzeElement(
-            map.asInstanceOf[Map[String, Any]],
-            fieldTypes,
-            fieldArrayness,
-            fieldCounts,
-            fullName
-          )
-          
-        case str: String =>
-          val inferredType = inferType(str)
-          fieldTypes.get(fullName) match {
-            case Some(existing) if existing != inferredType =>
-              // Type conflict - default to string
-              fieldTypes(fullName) = DataType.StringType
-            case None =>
-              fieldTypes(fullName) = inferredType
-            case _ => // Keep existing
-          }
-      }
+        }
+        
+      case map: Map[_, _] =>
+        val dataType = inferMapType(map.asInstanceOf[Map[String, Any]])
+        Field(name, dataType, nullable = true, isArray = false)
+        
+      case str: String =>
+        Field(name, inferType(str), nullable = true, isArray = false)
+        
+      case _ =>
+        Field(name, DataType.StringType, nullable = true, isArray = false)
     }
+  }
+  
+  /**
+   * Infer the DataType for a parsed map.
+   * If the map is text-only (just #text and optional @attrs), returns a leaf type.
+   * Otherwise returns a StructType.
+   */
+  private def inferMapType(m: Map[String, Any]): DataType = {
+    val nonAttrKeys = m.keys.filterNot(_.startsWith("@")).toSet
+    if (nonAttrKeys == Set("#text")) {
+      inferType(m("#text").toString)
+    } else if (nonAttrKeys.isEmpty) {
+      // Attributes only, no text or children
+      DataType.StringType
+    } else {
+      DataType.StructType(inferStructFields(m))
+    }
+  }
+  
+  /**
+   * Merge two DataTypes, reconciling mismatches.
+   */
+  private def mergeDataTypes(a: DataType, b: DataType): DataType = {
+    (a, b) match {
+      case (at, bt) if at == bt => at
+      case (DataType.StructType(af), DataType.StructType(bf)) =>
+        DataType.StructType(mergeFieldMaps(af, bf))
+      case _ => DataType.StringType
+    }
+  }
+  
+  /**
+   * Infer fields for a struct (map of name -> value).
+   */
+  private def inferStructFields(element: Map[String, Any]): Map[String, Field] = {
+    element.map { case (name, value) =>
+      name -> inferField(name, value)
+    }
+  }
+  
+  /**
+   * Merge two fields with the same name, reconciling types.
+   */
+  private def mergeFields(a: Field, b: Field): Field = {
+    val mergedType = (a.dataType, b.dataType) match {
+      case (at, bt) if at == bt => at
+      case (DataType.StructType(af), DataType.StructType(bf)) =>
+        DataType.StructType(mergeFieldMaps(af, bf))
+      case _ => DataType.StringType // type conflict — fall back to string
+    }
+    Field(a.name, mergedType, nullable = a.nullable || b.nullable, isArray = a.isArray || b.isArray)
+  }
+  
+  /**
+   * Merge two field maps, reconciling overlapping fields.
+   */
+  private def mergeFieldMaps(a: Map[String, Field], b: Map[String, Field]): Map[String, Field] = {
+    val allKeys = a.keySet ++ b.keySet
+    allKeys.map { key =>
+      (a.get(key), b.get(key)) match {
+        case (Some(af), Some(bf)) => key -> mergeFields(af, bf)
+        case (Some(af), None)     => key -> af.copy(nullable = true)
+        case (None, Some(bf))     => key -> bf.copy(nullable = true)
+        case _                    => key -> Field(key, DataType.StringType, nullable = true, isArray = false) // unreachable
+      }
+    }.toMap
   }
   
   /**

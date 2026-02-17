@@ -5,7 +5,6 @@ import com.typesafe.scalalogging.LazyLogging
 import io.slatr.model.Chunk
 
 import java.io.{File, FileInputStream}
-import javax.xml.stream.events.XMLEvent
 import javax.xml.stream.{XMLInputFactory, XMLStreamConstants, XMLStreamReader}
 import scala.collection.mutable
 import scala.util.{Try, Using}
@@ -16,17 +15,22 @@ class XmlStreamParser extends LazyLogging {
   private val inputFactory: XMLInputFactory = new InputFactoryImpl()
   
   /**
-   * Parse XML file and extract elements as a stream
-   * @param file The XML file to parse
-   * @param chunk Optional chunk specification for partial file reading
-   * @return Iterator of parsed elements
+   * Parse XML file and extract elements as a stream of content maps.
+   * Each map represents the parsed content of a depth-2 child of the root element.
    */
   def parse(file: File, chunk: Option[Chunk] = None): Try[Iterator[Map[String, Any]]] = {
+    parseNamed(file, chunk).map(_.map(_._2))
+  }
+  
+  /**
+   * Parse XML file and return named elements: (elementName, parsedContent) pairs.
+   * Each pair represents a depth-2 child of the root element.
+   */
+  def parseNamed(file: File, chunk: Option[Chunk] = None): Try[Iterator[(String, Map[String, Any])]] = {
     Try {
       val stream = new FileInputStream(file)
       val reader = inputFactory.createXMLStreamReader(stream)
       
-      // Skip to chunk start offset if specified
       chunk.foreach { c =>
         if (c.startOffset > 0) {
           stream.skip(c.startOffset)
@@ -93,15 +97,15 @@ class XmlStreamParser extends LazyLogging {
 }
 
 /**
- * Iterator that converts XML events to maps
+ * Iterator that yields (elementName, parsedContent) pairs for depth-2 elements.
  */
 private class XmlElementIterator(
   reader: XMLStreamReader,
   endOffset: Option[Long]
-) extends Iterator[Map[String, Any]] {
+) extends Iterator[(String, Map[String, Any])] {
   
   private val stack = mutable.Stack[String]()
-  private var currentElement: Option[Map[String, Any]] = None
+  private var current: Option[(String, Map[String, Any])] = None
   private var finished = false
   
   override def hasNext: Boolean = {
@@ -110,20 +114,18 @@ private class XmlElementIterator(
       finish()
       false
     }
-    else if (currentElement.isDefined) true
+    else if (current.isDefined) true
     else {
-      // Parse next element
       try {
         var foundEnd = false
-        while (reader.hasNext && currentElement.isEmpty && !foundEnd) {
+        while (reader.hasNext && current.isEmpty && !foundEnd) {
           reader.next() match {
             case XMLStreamConstants.START_ELEMENT =>
               val elemName = reader.getLocalName
               stack.push(elemName)
 
-              // Collect elements at depth 2 (children of root)
               if (stack.size == 2) {
-                currentElement = Some(parseElement(reader, elemName))
+                current = Some((elemName, parseElement(reader)))
                 stack.pop()
               }
 
@@ -133,12 +135,12 @@ private class XmlElementIterator(
             case XMLStreamConstants.END_DOCUMENT =>
               foundEnd = true
 
-            case _ => // Ignore other event types
+            case _ =>
           }
         }
 
-        if (currentElement.isEmpty) finish()
-        currentElement.isDefined
+        if (current.isEmpty) finish()
+        current.isDefined
       } catch {
         case e: Exception =>
           reader.close()
@@ -156,27 +158,23 @@ private class XmlElementIterator(
     reader.close()
   }
   
-  override def next(): Map[String, Any] = {
+  override def next(): (String, Map[String, Any]) = {
     if (!hasNext) throw new NoSuchElementException("No more elements")
-    
-    val result = currentElement.get
-    currentElement = None
+    val result = current.get
+    current = None
     result
   }
   
-  private def parseElement(reader: XMLStreamReader, elementName: String): Map[String, Any] = {
+  private def parseElement(reader: XMLStreamReader): Map[String, Any] = {
     val builder = mutable.Map[String, Any]()
     val childElements = mutable.Map[String, mutable.ArrayBuffer[Any]]()
     
-    // Parse attributes
     for (i <- 0 until reader.getAttributeCount) {
-      val attrName = reader.getAttributeLocalName(i)
-      val attrValue = reader.getAttributeValue(i)
-      builder(s"@$attrName") = attrValue
+      builder(s"@${reader.getAttributeLocalName(i)}") = reader.getAttributeValue(i)
     }
     
     var depth = 1
-    var textContent = new StringBuilder()
+    val textContent = new StringBuilder()
     
     while (reader.hasNext && depth > 0) {
       reader.next() match {
@@ -184,10 +182,9 @@ private class XmlElementIterator(
           depth += 1
           val childName = reader.getLocalName
           if (depth == 2) {
-            val childValue = parseElement(reader, childName)
-            val buffer = childElements.getOrElseUpdate(childName, mutable.ArrayBuffer())
-            buffer += childValue
-            depth -= 1 // parseElement already consumed the end element
+            val childValue = parseElement(reader)
+            childElements.getOrElseUpdate(childName, mutable.ArrayBuffer()) += childValue
+            depth -= 1
           }
           
         case XMLStreamConstants.END_ELEMENT =>
@@ -195,20 +192,16 @@ private class XmlElementIterator(
           
         case XMLStreamConstants.CHARACTERS | XMLStreamConstants.CDATA =>
           val text = reader.getText
-          if (text.trim.nonEmpty) {
-            textContent.append(text)
-          }
+          if (text.trim.nonEmpty) textContent.append(text)
           
-        case _ => // Ignore other event types
+        case _ =>
       }
     }
     
-    // Add text content if present and no child elements
     if (childElements.isEmpty && textContent.nonEmpty) {
       builder("#text") = textContent.toString.trim
     }
     
-    // Add child elements (always as arrays)
     childElements.foreach { case (name, values) =>
       builder(name) = values.toList
     }

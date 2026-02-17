@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<NewReleaseMessage>
+  <MessageHeader>
+    <MessageThreadId>Thread1</MessageThreadId>
+    <MessageId>Msg1</MessageId>
+    <MessageSender>
+      <PartyId>SENDER001</PartyId>
+      <PartyName>
+        <FullName>Test Sender</FullName>
+      </PartyName>
+    </MessageSender>
+    <MessageRecipient>
+      <PartyId>RECIPIENT001</PartyId>
+      <PartyName>
+        <FullName>Test Recipient</FullName>
+      </PartyName>
+    </MessageRecipient>
+    <MessageCreatedDateTime>2024-01-01T00:00:00</MessageCreatedDateTime>
+  </MessageHeader>
+  <ResourceList>
+    <SoundRecording>
+      <ResourceReference>A1</ResourceReference>
+      <Type>MusicalWorkSoundRecording</Type>
+      <SoundRecordingEdition>
+        <ResourceId>
+          <ISRC>TEST00000001</ISRC>
+        </ResourceId>
+      </SoundRecordingEdition>
+    </SoundRecording>
+  </ResourceList>
+</NewReleaseMessage>

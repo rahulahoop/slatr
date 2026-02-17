@@ -2,7 +2,7 @@ package io.slatr.cli.commands
 
 import com.monovore.decline._
 import io.slatr.cli.config.ConfigLoader
-import io.slatr.model.SchemaConfig
+import io.slatr.model.{DataType, Field, SchemaConfig}
 import io.slatr.parser.XmlStreamParser
 import io.slatr.schema.{SchemaInferrer, XsdResolver}
 
@@ -36,16 +36,30 @@ object InferSchemaCommand {
           println(s"\nRoot Element: ${schema.rootElement}")
           println(s"Fields: ${schema.fields.size}\n")
           
-          schema.fields.toSeq.sortBy(_._1).foreach { case (name, field) =>
-            val arrayMarker = if (field.isArray) "[]" else ""
-            val nullableMarker = if (field.nullable) "?" else ""
-            println(s"  $name: ${field.dataType}$arrayMarker$nullableMarker")
+          schema.fields.toSeq.sortBy(_._1).foreach { case (_, field) =>
+            printField(field, indent = 1)
           }
           
         case scala.util.Failure(ex) =>
           println(s"✗ Schema inference failed: ${ex.getMessage}")
           sys.exit(1)
       }
+    }
+  }
+  
+  private def printField(field: Field, indent: Int): Unit = {
+    val pad = "  " * indent
+    val arrayMarker = if (field.isArray) "[]" else ""
+    val nullableMarker = if (field.nullable) "?" else ""
+    
+    field.dataType match {
+      case DataType.StructType(children) =>
+        println(s"${pad}${field.name}${arrayMarker}${nullableMarker}:")
+        children.toSeq.sortBy(_._1).foreach { case (_, child) =>
+          printField(child, indent + 1)
+        }
+      case dt =>
+        println(s"${pad}${field.name}: ${dt}${arrayMarker}${nullableMarker}")
     }
   }
 }
