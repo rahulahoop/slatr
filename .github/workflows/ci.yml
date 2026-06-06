@@ -30,6 +30,10 @@ jobs:
       - name: Compile
         run: sbt "core/compile" "cli/compile" "Test/compile"
 
+      # Lint: unused imports + the no-`Any` domain guard (scalafix).
+      - name: Lint (scalafix)
+        run: sbt "scalafixAll --check"
+
       # Unit tests (no Docker required).
       - name: Unit tests
         run: sbt "core/test" "cli/test"
