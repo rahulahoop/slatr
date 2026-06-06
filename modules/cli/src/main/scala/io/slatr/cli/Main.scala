@@ -2,7 +2,6 @@ package io.slatr.cli
 
 import com.monovore.decline._
 import io.slatr.cli.commands.{BigQueryCommand, ConvertCommand, InferSchemaCommand, XsdInfoCommand}
-import cats.implicits._
 
 object Main extends CommandApp(
   name = "slatr",

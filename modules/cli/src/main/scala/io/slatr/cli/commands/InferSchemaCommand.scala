@@ -1,13 +1,12 @@
 package io.slatr.cli.commands
 
+import cats.implicits._
 import com.monovore.decline._
-import io.slatr.cli.config.ConfigLoader
 import io.slatr.model.{DataType, Field, SchemaConfig}
 import io.slatr.parser.XmlStreamParser
 import io.slatr.schema.{SchemaInferrer, XsdResolver}
 
 import java.io.File
-import cats.implicits._
 
 object InferSchemaCommand {
   

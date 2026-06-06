@@ -1,11 +1,12 @@
 package io.slatr.converter
 
 import com.dimafeng.testcontainers.{ForAllTestContainer, PostgreSQLContainer}
-import io.slatr.model.{DataType, Field, PostgreSQLConfig, Schema, WriteMode}
+import io.slatr.model._
 import io.slatr.parser.XmlStreamParser
 import io.slatr.schema.{SchemaInferrer, XsdResolver}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
+import org.testcontainers.utility.DockerImageName
 
 import java.io.File
 import java.sql.DriverManager
@@ -17,7 +18,8 @@ import scala.util.Using
  */
 class PostgreSQLIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestContainer {
 
-  override val container: PostgreSQLContainer = PostgreSQLContainer("postgres:16-alpine")
+  override val container: PostgreSQLContainer =
+    PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
 
   "PostgreSQLWriter" should "create table and insert data with traditional schema" in {
     val schema = Schema("root", Map(
