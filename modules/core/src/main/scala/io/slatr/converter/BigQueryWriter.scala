@@ -3,7 +3,7 @@ package io.slatr.converter
 import com.google.auth.oauth2.ServiceAccountCredentials
 import com.google.cloud.bigquery._
 import com.typesafe.scalalogging.LazyLogging
-import io.slatr.model.{BigQueryConfig, Chunk, Schema, WriteMode}
+import io.slatr.model.{BigQueryConfig, Chunk, DataType, Field, Schema, WriteMode}
 import io.slatr.parser.XmlStreamParser
 
 import java.io.{File, FileInputStream}
@@ -39,8 +39,12 @@ class BigQueryWriter(
     // Initialize BigQuery client
     val bigquery = bigQueryFactory.map(_.apply()).getOrElse(createBigQueryClient(config))
 
+    // In the columnar (traditional) model each row is a depth-2 element's content, so the
+    // table columns are that element's children — lift the inferred {elem: Struct} one level.
+    val rowSchema = if (config.useFirebaseModel) schema else BigQueryWriter.columnarSchema(schema)
+
     // Create BigQuery schema
-    val bqSchema = BigQuerySchemaMapper.toBigQuerySchema(schema, config.useFirebaseModel)
+    val bqSchema = BigQuerySchemaMapper.toBigQuerySchema(rowSchema, config.useFirebaseModel)
 
     if (config.useFirebaseModel) {
       logger.info("Using Firebase model (array of key-value structs)")
@@ -58,7 +62,7 @@ class BigQueryWriter(
       if (config.useFirebaseModel) {
         buildFirebaseRow(element, meta)
       } else {
-        createInsertAllRequest(element, schema, bqSchema)
+        createInsertAllRequest(element, rowSchema, bqSchema)
       }
     }.toList
 
@@ -267,50 +271,74 @@ class BigQueryWriter(
     schema: Schema,
     bqSchema: com.google.cloud.bigquery.Schema
   ): InsertAllRequest.RowToInsert = {
-    val content = scala.collection.mutable.Map[String, Any]()
-
-    element.foreach { case (key, value) =>
-      val cleanKey = cleanFieldName(key)
-
-      schema.fields.get(key).foreach { field =>
-        try {
-          val bqValue = convertValue(value, field.dataType)
-          bqValue.foreach { v =>
-            content(cleanKey) = v
-          }
-        } catch {
-          case e: Exception =>
-            logger.warn(s"Failed to convert field $cleanKey: ${e.getMessage}")
-        }
-      }
-    }
-
-    InsertAllRequest.RowToInsert.of(content.asJava)
+    val content = buildRecord(element, schema.fields)
+    InsertAllRequest.RowToInsert.of(content)
   }
 
   /**
-   * Convert parsed XML value to BigQuery-compatible value
+   * Build a BigQuery RECORD (java Map) from a parsed element, using `fields` as the schema.
+   * The parser wraps every child in a List, so a non-array field collapses its single value;
+   * an array field maps over all values; a struct child recurses into a nested RECORD.
    */
-  private def convertValue(value: Any, dataType: io.slatr.model.DataType): Option[Any] =
+  private def buildRecord(
+    element: Map[String, Any],
+    fields: Map[String, Field]
+  ): java.util.Map[String, Any] = {
+    val content = scala.collection.mutable.Map[String, Any]()
+    element.foreach { case (key, value) =>
+      fields.get(key).foreach { field =>
+        try {
+          convertField(value, field).foreach(v => content(cleanFieldName(key)) = v)
+        } catch {
+          case e: Exception =>
+            logger.warn(s"Failed to convert field ${cleanFieldName(key)}: ${e.getMessage}")
+        }
+      }
+    }
+    content.asJava
+  }
+
+  /**
+   * Convert a parsed value for a field, honouring its cardinality (`isArray`).
+   * Non-array fields collapse the parser's single-element List wrapper to a scalar/RECORD.
+   */
+  private def convertField(value: Any, field: Field): Option[Any] =
+    if (field.isArray) {
+      value match {
+        case list: List[_] =>
+          val converted = list.flatMap(item => convertLeaf(item, field.dataType))
+          if (converted.nonEmpty) Some(converted.asJava) else None
+        case other =>
+          convertLeaf(other, field.dataType).map(v => List(v).asJava)
+      }
+    } else {
+      value match {
+        case list: List[_] => list.headOption.flatMap(item => convertLeaf(item, field.dataType))
+        case other         => convertLeaf(other, field.dataType)
+      }
+    }
+
+  /**
+   * Convert a single parsed value to a BigQuery value: scalar from `#text`, or a nested
+   * RECORD for a StructType.
+   */
+  private def convertLeaf(value: Any, dataType: io.slatr.model.DataType): Option[Any] =
     value match {
       case null => None
 
-      case list: List[_] =>
-        // Handle arrays
-        val converted = list.flatMap { item =>
-          convertValue(item, dataType)
-        }
-        if (converted.nonEmpty) Some(converted.asJava) else None
-
       case map: Map[_, _] =>
-        // Handle nested structures - extract text content
         val mapValue = map.asInstanceOf[Map[String, Any]]
         mapValue.get("#text") match {
           case Some(text) =>
             convertScalarValue(text.toString, dataType)
           case None =>
-            // Complex nested structure - for now skip or serialize as JSON
-            None
+            dataType match {
+              case io.slatr.model.DataType.StructType(structFields) =>
+                val record = buildRecord(mapValue, structFields)
+                if (record.isEmpty) None else Some(record)
+              case _ =>
+                None
+            }
         }
 
       case scalar =>
@@ -397,6 +425,25 @@ object BigQueryWriter {
    */
   def toFirebaseFields(element: Map[String, Any]): List[Map[String, Any]] =
     element.toList.flatMap { case (key, value) => flatten(key, value) }
+
+  /**
+   * Derive the columnar (traditional) row schema. Inference keys fields by the depth-2
+   * element name ({book: Struct{...}}), but each row is that element's content, so lift every
+   * top-level StructType's children up as columns. Non-struct top-level fields pass through
+   * unchanged (e.g. manually-specified flat schemas). On name collisions across element types
+   * the first field wins.
+   */
+  def columnarSchema(schema: Schema): Schema = {
+    val lifted = schema.fields.values.foldLeft(Map.empty[String, Field]) { (acc, field) =>
+      field.dataType match {
+        case DataType.StructType(inner) =>
+          inner.foldLeft(acc) { case (m, (name, f)) => if (m.contains(name)) m else m + (name -> f) }
+        case _ =>
+          if (acc.contains(field.name)) acc else acc + (field.name -> field)
+      }
+    }
+    schema.copy(fields = lifted)
+  }
 
   private def flatten(key: String, value: Any): List[Map[String, Any]] =
     value match {

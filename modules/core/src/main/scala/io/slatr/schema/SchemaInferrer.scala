@@ -120,25 +120,30 @@ class SchemaInferrer(
   private def inferField(name: String, value: Any): Field = {
     value match {
       case list: List[_] =>
-        if (list.isEmpty) {
-          Field(name, DataType.StringType, nullable = true, isArray = true)
-        } else {
-          list.head match {
-            case _: Map[_, _] =>
-              // List of objects — infer type from all items, merge across them
-              val elemType = list.foldLeft(Option.empty[DataType]) { (acc, item) =>
-                val itemType = inferMapType(item.asInstanceOf[Map[String, Any]])
-                acc match {
-                  case None => Some(itemType)
-                  case Some(prev) => Some(mergeDataTypes(prev, itemType))
-                }
-              }.getOrElse(DataType.StringType)
-              Field(name, elemType, nullable = true, isArray = true)
-            case _ =>
-              // List of primitives
-              val elemType = inferType(list.head.toString)
-              Field(name, elemType, nullable = true, isArray = true)
-          }
+        list match {
+          case Nil =>
+            Field(name, DataType.StringType, nullable = true, isArray = true)
+          case single :: Nil =>
+            // The parser wraps every child in a List; a single occurrence is a scalar/struct,
+            // not an array. Recurse on the element so it infers as a leaf or StructType.
+            inferField(name, single)
+          case _ =>
+            list.head match {
+              case _: Map[_, _] =>
+                // List of objects — infer type from all items, merge across them
+                val elemType = list.foldLeft(Option.empty[DataType]) { (acc, item) =>
+                  val itemType = inferMapType(item.asInstanceOf[Map[String, Any]])
+                  acc match {
+                    case None => Some(itemType)
+                    case Some(prev) => Some(mergeDataTypes(prev, itemType))
+                  }
+                }.getOrElse(DataType.StringType)
+                Field(name, elemType, nullable = true, isArray = true)
+              case _ =>
+                // List of primitives
+                val elemType = inferType(list.head.toString)
+                Field(name, elemType, nullable = true, isArray = true)
+            }
         }
         
       case map: Map[_, _] =>

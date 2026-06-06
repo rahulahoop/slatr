@@ -1,7 +1,7 @@
 package io.slatr.converter
 
 import com.google.cloud.bigquery.{BigQuery, BigQueryError, InsertAllRequest, InsertAllResponse}
-import io.slatr.model.{BigQueryConfig, Schema, WriteMode}
+import io.slatr.model.{BigQueryConfig, DataType, Field, Schema, WriteMode}
 import io.slatr.parser.XmlStreamParser
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -159,5 +159,86 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
         fieldNames.exists(_.startsWith(s"SoundRecording[$i]")) shouldBe true
       }
     }
+  }
+
+  /** Run a traditional (non-Firebase) write() and return the captured row content maps. */
+  private def captureTraditional(
+    schema: Schema,
+    rows: Iterator[Map[String, Any]]
+  ): List[Map[String, Any]] = {
+    val captured = ListBuffer[InsertAllRequest]()
+    val config = BigQueryConfig(
+      projectId = "p",
+      datasetId = "d",
+      tableId = "t",
+      writeMode = WriteMode.Append,
+      useFirebaseModel = false
+    )
+    val writer = new BigQueryWriter(schema, config, Some(() => fakeBigQuery(captured)))
+    writer.write(rows)
+    captured.toList.flatMap(_.getRows.asScala.map(_.getContent.asScala.toMap))
+  }
+
+  "BigQueryWriter.write (traditional model)" should "flatten a depth-2 struct schema into scalar columns" in {
+    // Inference yields {book: Struct{...}}; rows are the book's contents (parser shape).
+    val schema = Schema(
+      "catalog",
+      Map(
+        "book" -> Field(
+          "book",
+          DataType.StructType(
+            Map(
+              "title" -> Field("title", DataType.StringType, nullable = true, isArray = false),
+              "year"  -> Field("year", DataType.IntType, nullable = true, isArray = false)
+            )
+          ),
+          nullable = true,
+          isArray = false
+        )
+      )
+    )
+    val row = Map[String, Any](
+      "title" -> List(Map[String, Any]("#text" -> "The Great Gatsby")),
+      "year"  -> List(Map[String, Any]("#text" -> "1925"))
+    )
+
+    val content = captureTraditional(schema, Iterator(row)).head
+    content.get("title") shouldBe Some("The Great Gatsby")
+    content.get("year") shouldBe Some(1925L) // IntType maps to BigQuery INT64 (Long)
+  }
+
+  it should "build a nested RECORD for struct columns" in {
+    val schema = Schema(
+      "company",
+      Map(
+        "employee" -> Field(
+          "employee",
+          DataType.StructType(
+            Map(
+              "id" -> Field("id", DataType.IntType, nullable = true, isArray = false),
+              "contact" -> Field(
+                "contact",
+                DataType.StructType(
+                  Map("email" -> Field("email", DataType.StringType, nullable = true, isArray = false))
+                ),
+                nullable = true,
+                isArray = false
+              )
+            )
+          ),
+          nullable = true,
+          isArray = false
+        )
+      )
+    )
+    val row = Map[String, Any](
+      "id"      -> List(Map[String, Any]("#text" -> "1")),
+      "contact" -> List(Map[String, Any]("email" -> List(Map[String, Any]("#text" -> "a@b.com"))))
+    )
+
+    val content = captureTraditional(schema, Iterator(row)).head
+    content.get("id") shouldBe Some(1L)
+    val contact = content("contact").asInstanceOf[java.util.Map[String, Any]]
+    contact.get("email") shouldBe "a@b.com"
   }
 }
