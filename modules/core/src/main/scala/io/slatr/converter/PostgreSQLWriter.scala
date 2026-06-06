@@ -144,6 +144,7 @@ class PostgreSQLWriter(
           logger.info("Overwrite mode: truncating existing data")
           Using.resource(conn.createStatement()) { stmt =>
             stmt.execute(s"TRUNCATE TABLE $tableName")
+            ()
           }
           
         case WriteMode.ErrorIfExists =>
@@ -163,6 +164,7 @@ class PostgreSQLWriter(
       
       Using.resource(conn.createStatement()) { stmt =>
         stmt.execute(createTableSql)
+        ()
       }
     }
   }

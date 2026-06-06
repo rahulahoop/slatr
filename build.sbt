@@ -13,8 +13,14 @@ ThisBuild / scalacOptions ++= Seq(
   "-Xlint",
   "-Ywarn-dead-code",
   "-Ywarn-numeric-widen",
-  "-Ywarn-value-discard"
+  "-Ywarn-value-discard",
+  "-Wunused:imports", // required by scalafix RemoveUnused
+  "-Xfatal-warnings"  // warnings fail the build
 )
+
+// scalafix
+ThisBuild / semanticdbEnabled := true
+ThisBuild / semanticdbVersion := "4.17.0" // must support Scala 2.13.18
 
 // Root project
 lazy val root = (project in file("."))

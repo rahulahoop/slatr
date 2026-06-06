@@ -5,10 +5,9 @@ import io.slatr.model.{DataType, XsdElement, XsdSchema}
 
 import java.io.StringReader
 import javax.xml.parsers.DocumentBuilderFactory
-import org.w3c.dom.{Document, Element, Node, NodeList}
+import org.w3c.dom.{Document, Element}
 import org.xml.sax.InputSource
 import scala.collection.mutable
-import scala.jdk.CollectionConverters._
 
 /** Parser for XSD (XML Schema Definition) files */
 class XsdParser extends LazyLogging {

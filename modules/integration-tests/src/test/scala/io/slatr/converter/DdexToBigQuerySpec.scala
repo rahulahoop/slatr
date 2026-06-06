@@ -22,7 +22,7 @@ import scala.jdk.CollectionConverters._
  * 2. Using Firebase model to handle large number of fields
  * 3. Querying the data to extract specific information
  */
-class DdexToBigQuerySpec extends AnyFlatSpec with Matchers with ForAllTestContainer {
+class bDdexToBigQuerySpec extends AnyFlatSpec with Matchers with ForAllTestContainer {
 
   // BigQuery emulator container configuration
   override val container: GenericContainer = GenericContainer(

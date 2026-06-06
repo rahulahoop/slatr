@@ -63,7 +63,6 @@ object LoadToPostgres {
       case other =>
         System.err.println(s"Unknown mode: $other (use 'firebase' or 'traditional')")
         sys.exit(1)
-        false // unreachable
     }
 
     val modeLabel = if (useFirebase) "firebase (JSONB)" else "traditional (columns)"

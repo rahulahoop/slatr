@@ -1,7 +1,7 @@
 package io.slatr.converter
 
 import io.slatr.model.{DataType, Field, Schema}
-import org.apache.parquet.schema.{MessageType, PrimitiveType, Type, Types}
+import org.apache.parquet.schema.{MessageType, Type, Types}
 import org.apache.parquet.schema.LogicalTypeAnnotation
 import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName
 import org.apache.parquet.schema.Type.Repetition
@@ -85,7 +85,6 @@ object ParquetSchemaMapper {
       case DataType.ArrayType(elementType) =>
         // For now, treat arrays as repeated primitive fields
         // This is simpler than the full list structure
-        val innerRepetition = Repetition.REPEATED
         val innerField = Field(cleanName, elementType, nullable = false, isArray = false)
         fieldToParquetType(cleanName, innerField.copy())
         

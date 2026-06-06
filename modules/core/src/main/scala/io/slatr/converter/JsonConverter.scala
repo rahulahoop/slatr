@@ -2,7 +2,6 @@ package io.slatr.converter
 
 import com.typesafe.scalalogging.LazyLogging
 import io.circe.Json
-import io.circe.syntax._
 import io.slatr.model.{Chunk, OutputConfig, Schema}
 import io.slatr.parser.XmlStreamParser
 

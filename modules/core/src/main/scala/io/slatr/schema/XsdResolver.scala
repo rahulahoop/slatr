@@ -67,7 +67,7 @@ class XsdResolver(config: XsdConfig) extends LazyLogging {
     try {
       val request = basicRequest
         .get(uri"$url")
-        .readTimeout(scala.concurrent.duration.Duration(config.timeout, "seconds"))
+        .readTimeout(scala.concurrent.duration.Duration(config.timeout.toLong, "seconds"))
       
       val response = request.send(backend)
       

@@ -5,14 +5,13 @@ import io.slatr.model.{Chunk, OutputConfig, Schema}
 import io.slatr.parser.XmlStreamParser
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
-import org.apache.parquet.hadoop.ParquetWriter
 import org.apache.parquet.hadoop.metadata.CompressionCodecName
-import org.apache.parquet.example.data.{Group, GroupFactory}
+import org.apache.parquet.example.data.Group
 import org.apache.parquet.example.data.simple.SimpleGroupFactory
 import org.apache.parquet.hadoop.example.GroupWriteSupport
 
 import java.io.File
-import scala.util.{Try, Using}
+import scala.util.Try
 
 /** Converts XML to Parquet format */
 class ParquetConverter(xmlParser: XmlStreamParser) extends Converter with LazyLogging {
@@ -152,7 +151,7 @@ class ParquetConverter(xmlParser: XmlStreamParser) extends Converter with LazyLo
     import io.slatr.model.DataType._
     
     try {
-      dataType match {
+      val _ = dataType match {
         case StringType =>
           group.append(fieldName, value)
           
