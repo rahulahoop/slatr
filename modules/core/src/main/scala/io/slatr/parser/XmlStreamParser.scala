@@ -73,6 +73,32 @@ class XmlStreamParser extends LazyLogging {
   }
   
   /**
+   * Extract the ERN version from the root element's namespace declarations.
+   * DDEX namespaces encode the version as a digit run, e.g.
+   * `http://ddex.net/xml/ern/42` → "4.2", `.../ern/383` → "3.8.3".
+   * Works across all ERN versions since the namespace is always present.
+   */
+  def extractErnVersion(file: File): Option[String] = {
+    val ernNs = """ddex\.net/xml/ern/(\d+)""".r
+    Using(new FileInputStream(file)) { stream =>
+      val reader = inputFactory.createXMLStreamReader(stream)
+      try {
+        advanceToFirstStartElement(reader).flatMap { _ =>
+          val uris =
+            (0 until reader.getNamespaceCount).map(reader.getNamespaceURI) :+ reader.getNamespaceURI
+          uris.iterator
+            .flatMap(uri => Option(uri))
+            .flatMap(uri => ernNs.findFirstMatchIn(uri).map(_.group(1)))
+            .map(_.toSeq.mkString("."))
+            .nextOption()
+        }
+      } finally {
+        reader.close()
+      }
+    }.toOption.flatten
+  }
+
+  /**
    * Get root element name from XML file
    */
   def getRootElementName(file: File): Option[String] = {

@@ -1,12 +1,13 @@
 package io.slatr.converter
 
-import com.google.auth.oauth2.{GoogleCredentials, ServiceAccountCredentials}
+import com.google.auth.oauth2.ServiceAccountCredentials
 import com.google.cloud.bigquery._
 import com.typesafe.scalalogging.LazyLogging
 import io.slatr.model.{BigQueryConfig, Chunk, Schema, WriteMode}
 import io.slatr.parser.XmlStreamParser
 
 import java.io.{File, FileInputStream}
+import java.time.Instant
 import scala.jdk.CollectionConverters._
 import scala.util.{Try, Using}
 
@@ -20,7 +21,17 @@ class BigQueryWriter(
   /**
    * Write data rows directly to BigQuery table (useful for testing)
    */
-  def write(rows: Iterator[Map[String, Any]]): TableId = {
+  def write(
+    rows: Iterator[Map[String, Any]],
+    metadata: Map[String, String] = Map.empty
+  ): TableId =
+    writeRows(rows.map(element => (element, metadata)))
+
+  /**
+   * Write rows where each row carries its own top-level metadata (Firebase model only).
+   * Used by the DDEX path to attach per-row `element_name` plus shared file metadata.
+   */
+  private def writeRows(rowsWithMeta: Iterator[(Map[String, Any], Map[String, String])]): TableId = {
     logger.info(
       s"Writing data to BigQuery: ${config.projectId}.${config.datasetId}.${config.tableId}"
     )
@@ -30,11 +41,11 @@ class BigQueryWriter(
 
     // Create BigQuery schema
     val bqSchema = BigQuerySchemaMapper.toBigQuerySchema(schema, config.useFirebaseModel)
-    
+
     if (config.useFirebaseModel) {
       logger.info("Using Firebase model (array of key-value structs)")
     }
-    
+
     logger.debug(s"BigQuery schema: ${bqSchema.getFields.asScala.map(_.getName).mkString(", ")}")
 
     val tableId = TableId.of(config.projectId, config.datasetId, config.tableId)
@@ -42,18 +53,27 @@ class BigQueryWriter(
     // Create or verify table exists
     ensureTable(bigquery, tableId, bqSchema, config)
 
-    // Convert to BigQuery rows and insert
-    val rowsList = rows.map { element =>
+    // Convert to BigQuery rows
+    val rowsList = rowsWithMeta.map { case (element, meta) =>
       if (config.useFirebaseModel) {
-        createFirebaseModelRequest(element)
+        buildFirebaseRow(element, meta)
       } else {
         createInsertAllRequest(element, schema, bqSchema)
       }
     }.toList
 
-    // Insert in batches
+    insertRows(bigquery, tableId, rowsList)
+    tableId
+  }
+
+  /** Insert rows into BigQuery in batches, failing fast on insert errors. */
+  private def insertRows(
+    bigquery: BigQuery,
+    tableId: TableId,
+    rows: List[InsertAllRequest.RowToInsert]
+  ): Unit = {
     val batchSize = 500 // BigQuery recommends batches of 500 rows
-    val batches   = rowsList.grouped(batchSize).toList
+    val batches   = rows.grouped(batchSize).toList
 
     var totalRows = 0
     batches.foreach { batch =>
@@ -79,8 +99,6 @@ class BigQueryWriter(
     logger.info(
       s"Successfully inserted $totalRows rows into ${config.projectId}.${config.datasetId}.${config.tableId}"
     )
-
-    tableId
   }
 
   /**
@@ -95,13 +113,57 @@ class BigQueryWriter(
       s"Writing ${xmlFile.getName} to BigQuery: ${config.projectId}.${config.datasetId}.${config.tableId}"
     )
 
-    // Parse XML and prepare rows
+    // Parse XML keeping each depth-2 element's name (e.g. ResourceList, DealList)
     val elements = xmlParser
-      .parse(xmlFile, chunk)
+      .parseNamed(xmlFile, chunk)
       .getOrElse(throw new Exception("Failed to parse XML"))
+      .toList
 
-    write(elements.iterator)
+    // File-level correlation metadata, applied to every row of this message
+    val fileMetadata = buildFileMetadata(xmlFile, xmlParser, elements)
+
+    // Each row also carries which depth-2 element it came from
+    writeRows(elements.iterator.map { case (name, element) =>
+      (element, fileMetadata + ("element_name" -> name))
+    })
   }
+
+  /**
+   * Build the per-file correlation metadata: source path, ERN version, and key
+   * MessageHeader fields. These become top-level columns so downstream queries can
+   * GROUP BY message_id to reassemble a message from its per-element rows.
+   */
+  private def buildFileMetadata(
+    file: File,
+    xmlParser: XmlStreamParser,
+    elements: List[(String, Map[String, Any])]
+  ): Map[String, String] = {
+    val header = elements.collectFirst { case ("MessageHeader", m) => m }
+    def hv(path: String*): Option[String] = header.flatMap(h => firstText(h, path.toList))
+
+    Map(
+      "file_store_path"          -> Some(file.getAbsolutePath),
+      "ern_version"              -> xmlParser.extractErnVersion(file),
+      "message_id"               -> hv("MessageId"),
+      "message_sender_id"        -> hv("MessageSender", "PartyId"),
+      "message_created_datetime" -> hv("MessageCreatedDateTime")
+    ).collect { case (k, Some(v)) if v.nonEmpty => k -> v }
+  }
+
+  /**
+   * Walk a parsed element along `path`, returning the first leaf `#text`.
+   * Parser wraps every child element value in a List, so navigate List-of-Map.
+   */
+  private def firstText(m: Map[String, Any], path: List[String]): Option[String] =
+    path match {
+      case Nil => m.get("#text").map(_.toString)
+      case head :: tail =>
+        m.get(head).flatMap {
+          case (child: Map[_, _]) :: _ => firstText(child.asInstanceOf[Map[String, Any]], tail)
+          case child: Map[_, _]        => firstText(child.asInstanceOf[Map[String, Any]], tail)
+          case _                       => None
+        }
+    }
 
   /**
    * Create BigQuery client with optional service account credentials
@@ -179,50 +241,22 @@ class BigQueryWriter(
     }
 
   /**
-   * Create Firebase-style InsertAllRequest row with array of key-value structs
-   * Format: { fields: [{ name: "key1", value: "value1" }, { name: "key2", value: "value2" }] }
+   * Create a Firebase-style InsertAllRequest row: the flattened leaf paths in the
+   * repeated `fields` struct, plus top-level correlation columns from `metadata`.
+   * Format: { fields: [{ name, value }, ...], message_id: ..., ingested_at: ... }
    */
-  private def createFirebaseModelRequest(element: Map[String, Any]): InsertAllRequest.RowToInsert = {
-    val fields = element.flatMap { case (key, value) =>
-      convertToFirebaseField(key, value)
-    }.toList
+  private def buildFirebaseRow(
+    element: Map[String, Any],
+    metadata: Map[String, String]
+  ): InsertAllRequest.RowToInsert = {
+    val fields: java.util.List[java.util.Map[String, Any]] =
+      BigQueryWriter.toFirebaseFields(element).map(_.asJava).asJava
 
-    val content = Map("fields" -> fields.asJava)
+    val content = scala.collection.mutable.Map[String, Any]("fields" -> fields)
+    metadata.foreach { case (k, v) => content(k) = v }
+    content(BigQueryWriter.IngestedAtColumn) = Instant.now().toString
+
     InsertAllRequest.RowToInsert.of(content.asJava)
-  }
-
-  /**
-   * Convert a key-value pair to Firebase field format
-   * Returns Some(Map) for simple values, None for complex nested structures
-   */
-  private def convertToFirebaseField(key: String, value: Any): Option[Map[String, Any]] = {
-    value match {
-      case null => 
-        Some(Map("name" -> key, "value" -> null))
-      
-      case list: List[_] =>
-        // For arrays, create multiple entries with array indices
-        val entries = list.zipWithIndex.flatMap { case (item, idx) =>
-          convertToFirebaseField(s"$key[$idx]", item)
-        }
-        if (entries.nonEmpty) Some(entries.head) else None
-      
-      case map: Map[_, _] =>
-        // For nested objects, flatten with dot notation
-        val mapValue = map.asInstanceOf[Map[String, Any]]
-        mapValue.get("#text") match {
-          case Some(text) =>
-            Some(Map("name" -> key, "value" -> text.toString))
-          case None =>
-            // Flatten nested structure
-            mapValue.headOption.map { case (nestedKey, nestedValue) =>
-              Map("name" -> s"$key.$nestedKey", "value" -> nestedValue.toString)
-            }
-        }
-      
-      case scalar =>
-        Some(Map("name" -> key, "value" -> scalar.toString))
-    }
   }
 
   /**
@@ -339,6 +373,53 @@ class BigQueryWriter(
 }
 
 object BigQueryWriter {
+
+  /**
+   * Top-level STRING correlation columns added to every Firebase-model row.
+   * Referenced by both the schema mapper and row population so they cannot drift.
+   */
+  val MetadataStringColumns: Seq[String] = Seq(
+    "file_store_path",
+    "element_name",
+    "message_id",
+    "message_sender_id",
+    "message_created_datetime",
+    "ern_version"
+  )
+
+  /** Pipeline ingestion timestamp column (TIMESTAMP). */
+  val IngestedAtColumn: String = "ingested_at"
+
+  /**
+   * Flatten a parsed XML element into Firebase leaf paths: a list of
+   * `Map("name" -> path, "value" -> scalar)`. Fully recursive — keeps every list
+   * element (`key[idx]`) and every nested child (`key.child`), so no data is dropped.
+   */
+  def toFirebaseFields(element: Map[String, Any]): List[Map[String, Any]] =
+    element.toList.flatMap { case (key, value) => flatten(key, value) }
+
+  private def flatten(key: String, value: Any): List[Map[String, Any]] =
+    value match {
+      case null =>
+        List(Map("name" -> key, "value" -> null))
+
+      case list: List[_] =>
+        // Keep every element, addressable by index
+        list.zipWithIndex.flatMap { case (item, idx) => flatten(s"$key[$idx]", item) }
+
+      case map: Map[_, _] =>
+        val m = map.asInstanceOf[Map[String, Any]]
+        // Attributes (and any non-text children) live under `key.child`; #text is the leaf
+        val rest = (m - "#text").toList.flatMap { case (ck, cv) => flatten(s"$key.$ck", cv) }
+        m.get("#text") match {
+          case Some(text) => Map("name" -> key, "value" -> text.toString) :: rest
+          case None       => rest
+        }
+
+      case scalar =>
+        List(Map("name" -> key, "value" -> scalar.toString))
+    }
+
   def apply(
     schema: Schema,
     config: BigQueryConfig,

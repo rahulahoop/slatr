@@ -1,11 +1,9 @@
 package io.slatr.converter
 
 import com.dimafeng.testcontainers.{ForAllTestContainer, GenericContainer}
-import com.google.auth.Credentials
-import com.google.auth.oauth2.GoogleCredentials
 import com.google.cloud.NoCredentials
 import com.google.cloud.bigquery._
-import io.slatr.model.{BigQueryConfig, DataType, Field, Schema, WriteMode}
+import io.slatr.model.{Field, Schema, _}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import org.testcontainers.containers.wait.strategy.Wait
@@ -125,10 +123,10 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
       resultRows should have size 3
 
       // Verify first row
-      resultRows(0).get("id").getLongValue shouldBe 1
-      resultRows(0).get("name").getStringValue shouldBe "Product A"
-      resultRows(0).get("price").getDoubleValue shouldBe 19.99
-      resultRows(0).get("created_at").getStringValue shouldBe "2024-01-15"
+      resultRows.head.get("id").getLongValue shouldBe 1
+      resultRows.head.get("name").getStringValue shouldBe "Product A"
+      resultRows.head.get("price").getDoubleValue shouldBe 19.99
+      resultRows.head.get("created_at").getStringValue shouldBe "2024-01-15"
 
       // Verify second row
       resultRows(1).get("id").getLongValue shouldBe 2
@@ -334,7 +332,12 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
       val table = client.getTable(TableId.of("test-project", "test_dataset", "firebase_test"))
       val bqSchema = table.getDefinition[StandardTableDefinition].getSchema
       
-      bqSchema.getFields.size() shouldBe 1
+      // Firebase schema = the repeated `fields` struct + top-level correlation columns
+      bqSchema.getFields.size() shouldBe (BigQueryWriter.MetadataStringColumns.size + 2)
+      val fieldNames = bqSchema.getFields.asScala.map(_.getName).toSet
+      fieldNames should contain("message_id")
+      fieldNames should contain(BigQueryWriter.IngestedAtColumn)
+
       val fieldsField = bqSchema.getFields.get("fields")
       fieldsField.getMode shouldBe com.google.cloud.bigquery.Field.Mode.REPEATED
       fieldsField.getType.getStandardType shouldBe StandardSQLTypeName.STRUCT
