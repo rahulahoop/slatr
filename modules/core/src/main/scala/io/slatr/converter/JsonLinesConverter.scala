@@ -2,7 +2,7 @@ package io.slatr.converter
 
 import com.typesafe.scalalogging.LazyLogging
 import io.circe.Json
-import io.slatr.model.{Chunk, OutputConfig, Schema}
+import io.slatr.model.{Chunk, OutputConfig, Schema, XmlElement}
 import io.slatr.parser.XmlStreamParser
 
 import java.io.{File, FileWriter}
@@ -42,28 +42,16 @@ class JsonLinesConverter(xmlParser: XmlStreamParser) extends Converter with Lazy
   }
   
   /**
-   * Convert an element map to Circe JSON
+   * Convert an [[XmlElement]] to Circe JSON: attributes as `@name`, leaf text as `#text`,
+   * and child elements as arrays keyed by tag name.
    */
-  private def elementToJson(element: Map[String, Any]): Json = {
-    val fields = element.map { case (key, value) =>
-      key -> valueToJson(value)
+  private def elementToJson(element: XmlElement): Json = {
+    val attrFields  = element.attributes.map { case (k, v) => s"@$k" -> Json.fromString(v) }
+    val textField   = element.text.map(t => "#text" -> Json.fromString(t)).toMap
+    val childFields = element.children.map { case (name, els) =>
+      name -> Json.arr(els.map(elementToJson): _*)
     }
-    Json.obj(fields.toSeq: _*)
-  }
-  
-  /**
-   * Convert a value to Circe JSON
-   */
-  private def valueToJson(value: Any): Json = value match {
-    case null => Json.Null
-    case s: String => Json.fromString(s)
-    case i: Int => Json.fromInt(i)
-    case l: Long => Json.fromLong(l)
-    case d: Double => Json.fromDoubleOrNull(d)
-    case b: Boolean => Json.fromBoolean(b)
-    case list: List[_] => Json.arr(list.map(valueToJson): _*)
-    case map: Map[_, _] => elementToJson(map.asInstanceOf[Map[String, Any]])
-    case other => Json.fromString(other.toString)
+    Json.obj((attrFields ++ textField ++ childFields).toSeq: _*)
   }
 }
 

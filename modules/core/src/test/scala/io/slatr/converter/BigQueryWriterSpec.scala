@@ -1,7 +1,7 @@
 package io.slatr.converter
 
 import com.google.cloud.bigquery.{BigQuery, BigQueryError, InsertAllRequest, InsertAllResponse}
-import io.slatr.model.{BigQueryConfig, DataType, Field, Schema, WriteMode}
+import io.slatr.model.{BigQueryConfig, DataType, Field, Schema, WriteMode, XmlElement}
 import io.slatr.parser.XmlStreamParser
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
@@ -12,14 +12,19 @@ import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters._
 
 /**
- * Tests the real `write()` path with the Firebase model, capturing the
- * InsertAllRequest sent to BigQuery so we can assert on what actually gets stored.
+ * Tests the real `write()` path, capturing the InsertAllRequest sent to BigQuery so we can
+ * assert on what actually gets stored.
  *
- * BigQuery is faked with a java.lang.reflect.Proxy rather than a mocking library
- * because the Google client's getTable/create are overloaded varargs methods and
- * Table has an inaccessible constructor — both awkward for ScalaMock/Mockito.
+ * BigQuery is faked with a java.lang.reflect.Proxy rather than a mocking library because the
+ * Google client's getTable/create are overloaded varargs methods and Table has an inaccessible
+ * constructor — both awkward for ScalaMock/Mockito.
  */
 class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
+
+  // --- XmlElement construction helpers ---
+  private def leaf(text: String): XmlElement = XmlElement(text = Some(text))
+  private def elem(children: (String, List[XmlElement])*): XmlElement =
+    XmlElement(children = children.toMap)
 
   /** Build an InsertAllResponse with no errors (package-private ctor → reflection). */
   private def emptyResponse(): InsertAllResponse = {
@@ -34,12 +39,12 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
    */
   private def fakeBigQuery(captured: ListBuffer[InsertAllRequest]): BigQuery = {
     val handler = new InvocationHandler {
-      override def invoke(proxy: Any, method: Method, args: Array[AnyRef]): AnyRef =
+      override def invoke(proxy: AnyRef, method: Method, args: Array[AnyRef]): AnyRef =
         method.getName match {
           case "insertAll" =>
             captured += args(0).asInstanceOf[InsertAllRequest]
             emptyResponse()
-          case "equals"   => java.lang.Boolean.valueOf(proxy.asInstanceOf[AnyRef] eq args(0))
+          case "equals"   => java.lang.Boolean.valueOf(proxy eq args(0))
           case "hashCode" => Integer.valueOf(System.identityHashCode(proxy))
           case "toString" => "FakeBigQuery"
           case _          => null // getTable, create, etc.
@@ -50,8 +55,8 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
       .asInstanceOf[BigQuery]
   }
 
-  /** Run write() against the fake and return the captured field name/value pairs. */
-  private def captureFields(rows: Iterator[Map[String, Any]]): List[(String, Any)] = {
+  /** Run write() (Firebase model) against the fake and return the captured field name/value pairs. */
+  private def captureFields(rows: Iterator[XmlElement]): List[(String, AnyRef)] = {
     val captured = ListBuffer[InsertAllRequest]()
     val config = BigQueryConfig(
       projectId = "p",
@@ -65,37 +70,36 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
 
     captured.toList.flatMap { req =>
       req.getRows.asScala.flatMap { row =>
-        val fields = row.getContent.get("fields").asInstanceOf[java.util.List[Any]]
+        val fields = row.getContent.get("fields").asInstanceOf[java.util.List[AnyRef]]
         fields.asScala.toList.map { f =>
-          val m = f.asInstanceOf[java.util.Map[String, Any]]
+          val m = f.asInstanceOf[java.util.Map[String, AnyRef]]
           m.get("name").toString -> m.get("value")
         }
       }
     }
   }
 
-  "BigQueryWriter.write (Firebase model)" should "write all elements in an array, not just the first" in {
-    val element = Map[String, Any](
+  "BigQueryWriter.write (Firebase model)" should "write all child occurrences, not just the first" in {
+    val element = elem(
       "SoundRecording" -> List(
-        Map[String, Any]("ISRC" -> List(Map[String, Any]("#text" -> "USRC17607839"))),
-        Map[String, Any]("ISRC" -> List(Map[String, Any]("#text" -> "USRC17607840"))),
-        Map[String, Any]("ISRC" -> List(Map[String, Any]("#text" -> "USRC17607841")))
+        elem("ISRC" -> List(leaf("USRC17607839"))),
+        elem("ISRC" -> List(leaf("USRC17607840"))),
+        elem("ISRC" -> List(leaf("USRC17607841")))
       )
     )
 
     val names = captureFields(Iterator(element)).map(_._1)
 
-    // Parser wraps every child element in a List, so single occurrences are indexed too
     names should contain("SoundRecording[0].ISRC[0]")
     names should contain("SoundRecording[1].ISRC[0]")
     names should contain("SoundRecording[2].ISRC[0]")
   }
 
-  it should "preserve correct values for each array element" in {
-    val element = Map[String, Any](
+  it should "preserve correct values for each occurrence" in {
+    val element = elem(
       "SoundRecording" -> List(
-        Map[String, Any]("ISRC" -> List(Map[String, Any]("#text" -> "USRC17607839"))),
-        Map[String, Any]("ISRC" -> List(Map[String, Any]("#text" -> "USRC17607840")))
+        elem("ISRC" -> List(leaf("USRC17607839"))),
+        elem("ISRC" -> List(leaf("USRC17607840")))
       )
     )
 
@@ -106,8 +110,8 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
   }
 
   it should "not drop any elements from a large list (regression: 21 SoundRecordings)" in {
-    val items   = (0 until 21).map(i => Map[String, Any]("#text" -> s"item$i")).toList
-    val element = Map[String, Any]("SoundRecording" -> items)
+    val items   = (0 until 21).map(i => leaf(s"item$i")).toList
+    val element = elem("SoundRecording" -> items)
 
     val names = captureFields(Iterator(element)).map(_._1)
 
@@ -116,9 +120,10 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
     }
   }
 
-  it should "preserve scalar values" in {
-    val byName = captureFields(Iterator(Map[String, Any]("MessageId" -> "Test1.1"))).toMap
-    byName("MessageId") shouldBe "Test1.1"
+  it should "preserve leaf values" in {
+    val element = elem("MessageId" -> List(leaf("Test1.1")))
+    val byName  = captureFields(Iterator(element)).toMap
+    byName("MessageId[0]") shouldBe "Test1.1"
   }
 
   it should "extract correlation metadata and keep all resources from a real ERN file" in {
@@ -150,8 +155,8 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
 
     // All 21 SoundRecordings preserved (regression for the array-drop bug)
     val fieldNames = rows.flatMap { row =>
-      row.getContent.get("fields").asInstanceOf[java.util.List[Any]].asScala.map { f =>
-        f.asInstanceOf[java.util.Map[String, Any]].get("name").toString
+      row.getContent.get("fields").asInstanceOf[java.util.List[AnyRef]].asScala.map { f =>
+        f.asInstanceOf[java.util.Map[String, AnyRef]].get("name").toString
       }
     }
     (0 until 21).foreach { i =>
@@ -164,8 +169,8 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
   /** Run a traditional (non-Firebase) write() and return the captured row content maps. */
   private def captureTraditional(
     schema: Schema,
-    rows: Iterator[Map[String, Any]]
-  ): List[Map[String, Any]] = {
+    rows: Iterator[XmlElement]
+  ): List[Map[String, AnyRef]] = {
     val captured = ListBuffer[InsertAllRequest]()
     val config = BigQueryConfig(
       projectId = "p",
@@ -180,7 +185,7 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
   }
 
   "BigQueryWriter.write (traditional model)" should "flatten a depth-2 struct schema into scalar columns" in {
-    // Inference yields {book: Struct{...}}; rows are the book's contents (parser shape).
+    // Inference yields {book: Struct{...}}; rows are the book's contents.
     val schema = Schema(
       "catalog",
       Map(
@@ -197,10 +202,7 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
         )
       )
     )
-    val row = Map[String, Any](
-      "title" -> List(Map[String, Any]("#text" -> "The Great Gatsby")),
-      "year"  -> List(Map[String, Any]("#text" -> "1925"))
-    )
+    val row = elem("title" -> List(leaf("The Great Gatsby")), "year" -> List(leaf("1925")))
 
     val content = captureTraditional(schema, Iterator(row)).head
     content.get("title") shouldBe Some("The Great Gatsby")
@@ -231,14 +233,14 @@ class BigQueryWriterSpec extends AnyFlatSpec with Matchers {
         )
       )
     )
-    val row = Map[String, Any](
-      "id"      -> List(Map[String, Any]("#text" -> "1")),
-      "contact" -> List(Map[String, Any]("email" -> List(Map[String, Any]("#text" -> "a@b.com"))))
+    val row = elem(
+      "id"      -> List(leaf("1")),
+      "contact" -> List(elem("email" -> List(leaf("a@b.com"))))
     )
 
     val content = captureTraditional(schema, Iterator(row)).head
     content.get("id") shouldBe Some(1L)
-    val contact = content("contact").asInstanceOf[java.util.Map[String, Any]]
+    val contact = content("contact").asInstanceOf[java.util.Map[String, AnyRef]]
     contact.get("email") shouldBe "a@b.com"
   }
 }

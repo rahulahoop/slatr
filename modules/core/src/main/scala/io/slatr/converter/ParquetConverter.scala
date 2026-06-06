@@ -1,7 +1,7 @@
 package io.slatr.converter
 
 import com.typesafe.scalalogging.LazyLogging
-import io.slatr.model.{Chunk, OutputConfig, Schema}
+import io.slatr.model.{Chunk, DataType, OutputConfig, Schema, XmlElement}
 import io.slatr.parser.XmlStreamParser
 import org.apache.hadoop.conf.Configuration
 import org.apache.hadoop.fs.Path
@@ -89,60 +89,52 @@ class ParquetConverter(xmlParser: XmlStreamParser) extends Converter with LazyLo
   }
   
   /**
-   * Create a Parquet Group from an element map
+   * Create a Parquet Group from an element: write child elements and attributes that match
+   * the schema. Only leaf (text) values are written; complex nested structures are skipped.
    */
   private def createGroup(
-    element: Map[String, Any],
+    element: XmlElement,
     groupFactory: SimpleGroupFactory,
     schema: Schema
   ): Group = {
     val group = groupFactory.newGroup()
-    
-    element.foreach { case (key, value) =>
-      val fieldName = cleanFieldName(key)
-      
-      // Only write if field exists in schema
-      schema.fields.get(key).foreach { field =>
-        try {
-          writeValue(group, fieldName, value, field.dataType)
-        } catch {
+
+    element.children.foreach { case (name, els) =>
+      schema.fields.get(name).foreach { field =>
+        try writeElements(group, cleanFieldName(name), els, field.dataType)
+        catch {
           case e: Exception =>
-            logger.warn(s"Failed to write field $fieldName: ${e.getMessage}")
+            logger.warn(s"Failed to write field ${cleanFieldName(name)}: ${e.getMessage}")
         }
       }
     }
-    
+
+    element.attributes.foreach { case (name, value) =>
+      schema.fields.get(s"@$name").foreach { field =>
+        try writeScalarValue(group, cleanFieldName(s"@$name"), value, field.dataType)
+        catch {
+          case e: Exception =>
+            logger.warn(s"Failed to write attribute ${cleanFieldName(s"@$name")}: ${e.getMessage}")
+        }
+      }
+    }
+
     group
   }
-  
-  /**
-   * Write a value to a Parquet Group based on data type
-   */
-  private def writeValue(group: Group, fieldName: String, value: Any, dataType: io.slatr.model.DataType): Unit = {
-    value match {
-      case null => // Don't write null values (OPTIONAL fields)
-        
-      case list: List[_] =>
-        // Handle arrays
-        list.foreach { item =>
-          writeValue(group, fieldName, item, dataType)
-        }
-        
-      case map: Map[_, _] =>
-        // Handle nested structures - extract text content
-        val mapValue = map.asInstanceOf[Map[String, Any]]
-        mapValue.get("#text") match {
-          case Some(text) =>
-            writeScalarValue(group, fieldName, text.toString, dataType)
-          case None =>
-            // Complex nested structure - serialize as string for now
-            logger.debug(s"Complex nested structure for field $fieldName, skipping")
-        }
-        
-      case scalar =>
-        writeScalarValue(group, fieldName, scalar.toString, dataType)
+
+  /** Write a (possibly repeated) child element to the group. */
+  private def writeElements(
+    group: Group,
+    fieldName: String,
+    elements: List[XmlElement],
+    dataType: DataType
+  ): Unit =
+    elements.foreach { e =>
+      e.text match {
+        case Some(text) => writeScalarValue(group, fieldName, text, dataType)
+        case None       => logger.debug(s"Complex nested structure for field $fieldName, skipping")
+      }
     }
-  }
   
   /**
    * Write a scalar value to Parquet Group

@@ -8,10 +8,14 @@ import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 import org.testcontainers.containers.wait.strategy.Wait
 
-import java.time.LocalDate
 import scala.jdk.CollectionConverters._
 
 class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestContainer {
+
+  // --- XmlElement row helpers (each field becomes a single leaf child) ---
+  private def leaf(text: String): XmlElement = XmlElement(text = Some(text))
+  private def row(fields: (String, String)*): XmlElement =
+    XmlElement(children = fields.map { case (k, v) => k -> List(leaf(v)) }.toMap)
 
   // BigQuery emulator container configuration
   // Note: Requires AMD64 emulation on Apple Silicon (set DOCKER_DEFAULT_PLATFORM=linux/amd64)
@@ -49,24 +53,10 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
 
       // Test data
       val rows = Seq(
-        Map[String, Any](
-          "id" -> 1,
-          "name" -> "Product A",
-          "price" -> 19.99,
-          "created_at" -> LocalDate.of(2024, 1, 15)
-        ),
-        Map[String, Any](
-          "id" -> 2,
-          "name" -> "Product B",
-          "price" -> 29.99,
-          "created_at" -> LocalDate.of(2024, 1, 20)
-        ),
-        Map[String, Any](
-          "id" -> 3,
-          "name" -> "Product C",
-          "price" -> null,
-          "created_at" -> LocalDate.of(2024, 1, 25)
-        )
+        row("id" -> "1", "name" -> "Product A", "price" -> "19.99", "created_at" -> "2024-01-15"),
+        row("id" -> "2", "name" -> "Product B", "price" -> "29.99", "created_at" -> "2024-01-20"),
+        // null price -> field omitted
+        row("id" -> "3", "name" -> "Product C", "created_at" -> "2024-01-25")
       )
 
       // Create BigQueryWriter config
@@ -168,15 +158,11 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
 
       // First write
       val writer1 = new BigQueryWriter(schema, config, Some(() => client))
-      writer1.write(Iterator(
-        Map[String, Any]("id" -> 1, "value" -> "first")
-      ))
+      writer1.write(Iterator(row("id" -> "1", "value" -> "first")))
 
       // Second write (append)
       val writer2 = new BigQueryWriter(schema, config, Some(() => client))
-      writer2.write(Iterator(
-        Map[String, Any]("id" -> 2, "value" -> "second")
-      ))
+      writer2.write(Iterator(row("id" -> "2", "value" -> "second")))
 
       // Verify both rows exist
       val query = "SELECT COUNT(*) as cnt FROM `test-project.test_dataset.append_test`"
@@ -218,16 +204,14 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
       // First write
       val writer1 = new BigQueryWriter(schema, config, Some(() => client))
       writer1.write(Iterator(
-        Map[String, Any]("id" -> 1, "value" -> "first"),
-        Map[String, Any]("id" -> 2, "value" -> "second")
+        row("id" -> "1", "value" -> "first"),
+        row("id" -> "2", "value" -> "second")
       ))
 
       // Second write (overwrite)
       val configOverwrite = config.copy(writeMode = WriteMode.Overwrite)
       val writer2 = new BigQueryWriter(schema, configOverwrite, Some(() => client))
-      writer2.write(Iterator(
-        Map[String, Any]("id" -> 3, "value" -> "third")
-      ))
+      writer2.write(Iterator(row("id" -> "3", "value" -> "third")))
 
       // Verify only new data exists
       val query = "SELECT * FROM `test-project.test_dataset.overwrite_test` ORDER BY id"
@@ -271,7 +255,9 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
 
       val writer = new BigQueryWriter(schema, config, Some(() => client))
       writer.write(Iterator(
-        Map[String, Any]("id" -> 1, "tags" -> Seq("scala", "bigquery", "testing"))
+        XmlElement(children =
+          Map("id" -> List(leaf("1")), "tags" -> List(leaf("scala"), leaf("bigquery"), leaf("testing")))
+        )
       ))
 
       // Verify schema has REPEATED mode
@@ -324,8 +310,8 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
 
       val writer = new BigQueryWriter(schema, config, Some(() => client))
       writer.write(Iterator(
-        Map[String, Any]("id" -> 1, "name" -> "Item A", "status" -> "active"),
-        Map[String, Any]("id" -> 2, "name" -> "Item B", "status" -> "inactive")
+        row("id" -> "1", "name" -> "Item A", "status" -> "active"),
+        row("id" -> "2", "name" -> "Item B", "status" -> "inactive")
       ))
 
       // Verify Firebase schema structure
@@ -348,12 +334,13 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
       structFields.get("name").getType.getStandardType shouldBe StandardSQLTypeName.STRING
       structFields.get("value").getType.getStandardType shouldBe StandardSQLTypeName.STRING
 
-      // Query the data with UNNEST
+      // Query the data with UNNEST. Each row is an element whose children are indexed,
+      // so the flattened leaf keys are `id[0]`, `name[0]`, `status[0]`.
       val query = """
-        SELECT 
-          (SELECT value FROM UNNEST(fields) WHERE name = 'id') as id,
-          (SELECT value FROM UNNEST(fields) WHERE name = 'name') as name,
-          (SELECT value FROM UNNEST(fields) WHERE name = 'status') as status
+        SELECT
+          (SELECT value FROM UNNEST(fields) WHERE name = 'id[0]') as id,
+          (SELECT value FROM UNNEST(fields) WHERE name = 'name[0]') as name,
+          (SELECT value FROM UNNEST(fields) WHERE name = 'status[0]') as status
         FROM `test-project.test_dataset.firebase_test`
         ORDER BY id
       """

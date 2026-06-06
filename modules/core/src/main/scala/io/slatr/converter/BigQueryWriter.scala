@@ -3,7 +3,7 @@ package io.slatr.converter
 import com.google.auth.oauth2.ServiceAccountCredentials
 import com.google.cloud.bigquery._
 import com.typesafe.scalalogging.LazyLogging
-import io.slatr.model.{BigQueryConfig, Chunk, DataType, Field, Schema, WriteMode}
+import io.slatr.model.{BigQueryConfig, Chunk, DataType, Field, Schema, WriteMode, XmlElement}
 import io.slatr.parser.XmlStreamParser
 
 import java.io.{File, FileInputStream}
@@ -22,7 +22,7 @@ class BigQueryWriter(
    * Write data rows directly to BigQuery table (useful for testing)
    */
   def write(
-    rows: Iterator[Map[String, Any]],
+    rows: Iterator[XmlElement],
     metadata: Map[String, String] = Map.empty
   ): TableId =
     writeRows(rows.map(element => (element, metadata)))
@@ -31,7 +31,7 @@ class BigQueryWriter(
    * Write rows where each row carries its own top-level metadata (Firebase model only).
    * Used by the DDEX path to attach per-row `element_name` plus shared file metadata.
    */
-  private def writeRows(rowsWithMeta: Iterator[(Map[String, Any], Map[String, String])]): TableId = {
+  private def writeRows(rowsWithMeta: Iterator[(XmlElement, Map[String, String])]): TableId = {
     logger.info(
       s"Writing data to BigQuery: ${config.projectId}.${config.datasetId}.${config.tableId}"
     )
@@ -140,10 +140,10 @@ class BigQueryWriter(
   private def buildFileMetadata(
     file: File,
     xmlParser: XmlStreamParser,
-    elements: List[(String, Map[String, Any])]
+    elements: List[(String, XmlElement)]
   ): Map[String, String] = {
     val header = elements.collectFirst { case ("MessageHeader", m) => m }
-    def hv(path: String*): Option[String] = header.flatMap(h => firstText(h, path.toList))
+    def hv(path: String*): Option[String] = header.flatMap(_.textAt(path: _*))
 
     Map(
       "file_store_path"          -> Some(file.getAbsolutePath),
@@ -153,21 +153,6 @@ class BigQueryWriter(
       "message_created_datetime" -> hv("MessageCreatedDateTime")
     ).collect { case (k, Some(v)) if v.nonEmpty => k -> v }
   }
-
-  /**
-   * Walk a parsed element along `path`, returning the first leaf `#text`.
-   * Parser wraps every child element value in a List, so navigate List-of-Map.
-   */
-  private def firstText(m: Map[String, Any], path: List[String]): Option[String] =
-    path match {
-      case Nil => m.get("#text").map(_.toString)
-      case head :: tail =>
-        m.get(head).flatMap {
-          case (child: Map[_, _]) :: _ => firstText(child.asInstanceOf[Map[String, Any]], tail)
-          case child: Map[_, _]        => firstText(child.asInstanceOf[Map[String, Any]], tail)
-          case _                       => None
-        }
-    }
 
   /**
    * Create BigQuery client with optional service account credentials
@@ -250,13 +235,15 @@ class BigQueryWriter(
    * Format: { fields: [{ name, value }, ...], message_id: ..., ingested_at: ... }
    */
   private def buildFirebaseRow(
-    element: Map[String, Any],
+    element: XmlElement,
     metadata: Map[String, String]
   ): InsertAllRequest.RowToInsert = {
-    val fields: java.util.List[java.util.Map[String, Any]] =
-      BigQueryWriter.toFirebaseFields(element).map(_.asJava).asJava
+    val fields: java.util.List[java.util.Map[String, String]] =
+      BigQueryWriter.toFirebaseFields(element).map { case (name, value) =>
+        Map("name" -> name, "value" -> value).asJava
+      }.asJava
 
-    val content = scala.collection.mutable.Map[String, Any]("fields" -> fields)
+    val content = scala.collection.mutable.Map[String, AnyRef]("fields" -> fields)
     metadata.foreach { case (k, v) => content(k) = v }
     content(BigQueryWriter.IngestedAtColumn) = Instant.now().toString
 
@@ -264,104 +251,98 @@ class BigQueryWriter(
   }
 
   /**
-   * Create InsertAllRequest row from parsed XML element
+   * Create InsertAllRequest row from a parsed XML element (columnar model).
    */
   private def createInsertAllRequest(
-    element: Map[String, Any],
+    element: XmlElement,
     schema: Schema,
     bqSchema: com.google.cloud.bigquery.Schema
-  ): InsertAllRequest.RowToInsert = {
-    val content = buildRecord(element, schema.fields)
-    InsertAllRequest.RowToInsert.of(content)
-  }
+  ): InsertAllRequest.RowToInsert =
+    InsertAllRequest.RowToInsert.of(buildRecord(element, schema.fields))
 
   /**
-   * Build a BigQuery RECORD (java Map) from a parsed element, using `fields` as the schema.
-   * The parser wraps every child in a List, so a non-array field collapses its single value;
-   * an array field maps over all values; a struct child recurses into a nested RECORD.
+   * Build a BigQuery RECORD (java Map) from an element, using `fields` as the schema.
+   * Child elements collapse a single occurrence to a scalar/RECORD or map an array; struct
+   * children recurse; attributes are written as `@name` columns.
    */
   private def buildRecord(
-    element: Map[String, Any],
+    element: XmlElement,
     fields: Map[String, Field]
-  ): java.util.Map[String, Any] = {
-    val content = scala.collection.mutable.Map[String, Any]()
-    element.foreach { case (key, value) =>
-      fields.get(key).foreach { field =>
-        try {
-          convertField(value, field).foreach(v => content(cleanFieldName(key)) = v)
-        } catch {
+  ): java.util.Map[String, AnyRef] = {
+    val content = scala.collection.mutable.Map[String, AnyRef]()
+
+    element.children.foreach { case (name, els) =>
+      fields.get(name).foreach { field =>
+        try convertField(els, field).foreach(v => content(cleanFieldName(name)) = v)
+        catch {
           case e: Exception =>
-            logger.warn(s"Failed to convert field ${cleanFieldName(key)}: ${e.getMessage}")
+            logger.warn(s"Failed to convert field ${cleanFieldName(name)}: ${e.getMessage}")
         }
       }
     }
+
+    element.attributes.foreach { case (name, value) =>
+      fields.get(s"@$name").foreach { field =>
+        convertScalarValue(value, field.dataType).foreach(v => content(cleanFieldName(s"@$name")) = v)
+      }
+    }
+
+    element.text.foreach { text =>
+      fields.get("#text").foreach { field =>
+        convertScalarValue(text, field.dataType).foreach(v => content(cleanFieldName("#text")) = v)
+      }
+    }
+
     content.asJava
   }
 
   /**
-   * Convert a parsed value for a field, honouring its cardinality (`isArray`).
-   * Non-array fields collapse the parser's single-element List wrapper to a scalar/RECORD.
+   * Convert a named child for a field, honouring its cardinality (`isArray`): a non-array
+   * field uses the single occurrence; an array field maps over all occurrences.
    */
-  private def convertField(value: Any, field: Field): Option[Any] =
+  private def convertField(elements: List[XmlElement], field: Field): Option[AnyRef] =
     if (field.isArray) {
-      value match {
-        case list: List[_] =>
-          val converted = list.flatMap(item => convertLeaf(item, field.dataType))
-          if (converted.nonEmpty) Some(converted.asJava) else None
-        case other =>
-          convertLeaf(other, field.dataType).map(v => List(v).asJava)
-      }
+      val converted = elements.flatMap(e => convertElement(e, field.dataType))
+      if (converted.nonEmpty) Some(converted.asJava) else None
     } else {
-      value match {
-        case list: List[_] => list.headOption.flatMap(item => convertLeaf(item, field.dataType))
-        case other         => convertLeaf(other, field.dataType)
-      }
+      elements.headOption.flatMap(e => convertElement(e, field.dataType))
     }
 
   /**
-   * Convert a single parsed value to a BigQuery value: scalar from `#text`, or a nested
-   * RECORD for a StructType.
+   * Convert a single element to a BigQuery value: scalar from its text, or a nested RECORD
+   * for a StructType.
    */
-  private def convertLeaf(value: Any, dataType: io.slatr.model.DataType): Option[Any] =
-    value match {
-      case null => None
-
-      case map: Map[_, _] =>
-        val mapValue = map.asInstanceOf[Map[String, Any]]
-        mapValue.get("#text") match {
-          case Some(text) =>
-            convertScalarValue(text.toString, dataType)
-          case None =>
-            dataType match {
-              case io.slatr.model.DataType.StructType(structFields) =>
-                val record = buildRecord(mapValue, structFields)
-                if (record.isEmpty) None else Some(record)
-              case _ =>
-                None
-            }
+  private def convertElement(element: XmlElement, dataType: DataType): Option[AnyRef] =
+    element.text match {
+      case Some(text) =>
+        convertScalarValue(text, dataType)
+      case None =>
+        dataType match {
+          case DataType.StructType(structFields) =>
+            val record = buildRecord(element, structFields)
+            if (record.isEmpty) None else Some(record)
+          case _ =>
+            None
         }
-
-      case scalar =>
-        convertScalarValue(scalar.toString, dataType)
     }
 
   /**
-   * Convert scalar string value to BigQuery type
+   * Convert a scalar string value to a (boxed) BigQuery value.
    */
-  private def convertScalarValue(value: String, dataType: io.slatr.model.DataType): Option[Any] = {
+  private def convertScalarValue(value: String, dataType: DataType): Option[AnyRef] = {
     import io.slatr.model.DataType._
 
     try {
-      val result: Any = dataType match {
+      val result: AnyRef = dataType match {
         case StringType        => value
-        case IntType           => value.toLong   // BigQuery uses INT64
-        case LongType          => value.toLong
-        case DoubleType        => value.toDouble
-        case BooleanType       => value.toBoolean
+        case IntType           => java.lang.Long.valueOf(value.toLong)    // BigQuery uses INT64
+        case LongType          => java.lang.Long.valueOf(value.toLong)
+        case DoubleType        => java.lang.Double.valueOf(value.toDouble)
+        case BooleanType       => java.lang.Boolean.valueOf(value.toBoolean)
         case TimestampType     => parseTimestamp(value)
         case DateType          => value          // BigQuery accepts ISO 8601 date strings
         case TimeType          => value          // BigQuery accepts ISO 8601 time strings
-        case DecimalType(_, _) => value.toDouble // Convert to FLOAT64
+        case DecimalType(_, _) => java.lang.Double.valueOf(value.toDouble) // FLOAT64
         case _                 => value
       }
       Some(result)
@@ -419,12 +400,28 @@ object BigQueryWriter {
   val IngestedAtColumn: String = "ingested_at"
 
   /**
-   * Flatten a parsed XML element into Firebase leaf paths: a list of
-   * `Map("name" -> path, "value" -> scalar)`. Fully recursive — keeps every list
-   * element (`key[idx]`) and every nested child (`key.child`), so no data is dropped.
+   * Flatten an element into Firebase leaf paths: `(path, value)` pairs. Fully recursive —
+   * every child occurrence is indexed (`name[idx]`), nested children are dotted
+   * (`parent[i].child[j]`), attributes are `@name`, and leaf text is the value. No data dropped.
    */
-  def toFirebaseFields(element: Map[String, Any]): List[Map[String, Any]] =
-    element.toList.flatMap { case (key, value) => flatten(key, value) }
+  def toFirebaseFields(element: XmlElement): List[(String, String)] = {
+    val textEntry   = element.text.map(t => "#text" -> t).toList
+    val attrEntries = element.attributes.toList.map { case (k, v) => s"@$k" -> v }
+    val childEntries = element.children.toList.flatMap { case (name, els) =>
+      els.zipWithIndex.flatMap { case (child, idx) => flattenAt(s"$name[$idx]", child) }
+    }
+    textEntry ++ attrEntries ++ childEntries
+  }
+
+  /** Flatten an element nested at `path`, prefixing every produced key with `path`. */
+  private def flattenAt(path: String, element: XmlElement): List[(String, String)] = {
+    val textEntry   = element.text.map(t => path -> t).toList
+    val attrEntries = element.attributes.toList.map { case (k, v) => s"$path.@$k" -> v }
+    val childEntries = element.children.toList.flatMap { case (name, els) =>
+      els.zipWithIndex.flatMap { case (child, idx) => flattenAt(s"$path.$name[$idx]", child) }
+    }
+    textEntry ++ attrEntries ++ childEntries
+  }
 
   /**
    * Derive the columnar (traditional) row schema. Inference keys fields by the depth-2
@@ -444,28 +441,6 @@ object BigQueryWriter {
     }
     schema.copy(fields = lifted)
   }
-
-  private def flatten(key: String, value: Any): List[Map[String, Any]] =
-    value match {
-      case null =>
-        List(Map("name" -> key, "value" -> null))
-
-      case list: List[_] =>
-        // Keep every element, addressable by index
-        list.zipWithIndex.flatMap { case (item, idx) => flatten(s"$key[$idx]", item) }
-
-      case map: Map[_, _] =>
-        val m = map.asInstanceOf[Map[String, Any]]
-        // Attributes (and any non-text children) live under `key.child`; #text is the leaf
-        val rest = (m - "#text").toList.flatMap { case (ck, cv) => flatten(s"$key.$ck", cv) }
-        m.get("#text") match {
-          case Some(text) => Map("name" -> key, "value" -> text.toString) :: rest
-          case None       => rest
-        }
-
-      case scalar =>
-        List(Map("name" -> key, "value" -> scalar.toString))
-    }
 
   def apply(
     schema: Schema,

@@ -2,7 +2,7 @@ package io.slatr.parser
 
 import com.fasterxml.aalto.stax.InputFactoryImpl
 import com.typesafe.scalalogging.LazyLogging
-import io.slatr.model.Chunk
+import io.slatr.model.{Chunk, XmlElement}
 
 import java.io.{File, FileInputStream}
 import javax.xml.stream.{XMLInputFactory, XMLStreamConstants, XMLStreamReader}
@@ -15,18 +15,18 @@ class XmlStreamParser extends LazyLogging {
   private val inputFactory: XMLInputFactory = new InputFactoryImpl()
   
   /**
-   * Parse XML file and extract elements as a stream of content maps.
-   * Each map represents the parsed content of a depth-2 child of the root element.
+   * Parse XML file and extract elements as a stream of [[XmlElement]]s.
+   * Each element is a depth-2 child of the root element.
    */
-  def parse(file: File, chunk: Option[Chunk] = None): Try[Iterator[Map[String, Any]]] = {
+  def parse(file: File, chunk: Option[Chunk] = None): Try[Iterator[XmlElement]] = {
     parseNamed(file, chunk).map(_.map(_._2))
   }
-  
+
   /**
-   * Parse XML file and return named elements: (elementName, parsedContent) pairs.
+   * Parse XML file and return named elements: (elementName, element) pairs.
    * Each pair represents a depth-2 child of the root element.
    */
-  def parseNamed(file: File, chunk: Option[Chunk] = None): Try[Iterator[(String, Map[String, Any])]] = {
+  def parseNamed(file: File, chunk: Option[Chunk] = None): Try[Iterator[(String, XmlElement)]] = {
     Try {
       val stream = new FileInputStream(file)
       val reader = inputFactory.createXMLStreamReader(stream)
@@ -123,15 +123,15 @@ class XmlStreamParser extends LazyLogging {
 }
 
 /**
- * Iterator that yields (elementName, parsedContent) pairs for depth-2 elements.
+ * Iterator that yields (elementName, element) pairs for depth-2 elements.
  */
 private class XmlElementIterator(
   reader: XMLStreamReader,
   endOffset: Option[Long]
-) extends Iterator[(String, Map[String, Any])] {
-  
+) extends Iterator[(String, XmlElement)] {
+
   private val stack = mutable.Stack[String]()
-  private var current: Option[(String, Map[String, Any])] = None
+  private var current: Option[(String, XmlElement)] = None
   private var finished = false
   
   override def hasNext: Boolean = {
@@ -184,24 +184,22 @@ private class XmlElementIterator(
     reader.close()
   }
   
-  override def next(): (String, Map[String, Any]) = {
+  override def next(): (String, XmlElement) = {
     if (!hasNext) throw new NoSuchElementException("No more elements")
     val result = current.get
     current = None
     result
   }
-  
-  private def parseElement(reader: XMLStreamReader): Map[String, Any] = {
-    val builder = mutable.Map[String, Any]()
-    val childElements = mutable.Map[String, mutable.ArrayBuffer[Any]]()
-    
-    for (i <- 0 until reader.getAttributeCount) {
-      builder(s"@${reader.getAttributeLocalName(i)}") = reader.getAttributeValue(i)
-    }
-    
-    var depth = 1
-    val textContent = new StringBuilder()
-    
+
+  private def parseElement(reader: XMLStreamReader): XmlElement = {
+    val attributes = (0 until reader.getAttributeCount).map { i =>
+      reader.getAttributeLocalName(i) -> reader.getAttributeValue(i)
+    }.toMap
+
+    val childElements = mutable.Map[String, mutable.ArrayBuffer[XmlElement]]()
+    var depth         = 1
+    val textContent   = new StringBuilder()
+
     while (reader.hasNext && depth > 0) {
       reader.next() match {
         case XMLStreamConstants.START_ELEMENT =>
@@ -212,27 +210,23 @@ private class XmlElementIterator(
             childElements.getOrElseUpdate(childName, mutable.ArrayBuffer()) += childValue
             depth -= 1
           }
-          
+
         case XMLStreamConstants.END_ELEMENT =>
           depth -= 1
-          
+
         case XMLStreamConstants.CHARACTERS | XMLStreamConstants.CDATA =>
           val text = reader.getText
           if (text.trim.nonEmpty) textContent.append(text)
-          
+
         case _ =>
       }
     }
-    
-    if (childElements.isEmpty && textContent.nonEmpty) {
-      builder("#text") = textContent.toString.trim
-    }
-    
-    childElements.foreach { case (name, values) =>
-      builder(name) = values.toList
-    }
-    
-    builder.toMap
+
+    // Text is kept only for leaf elements, matching the previous representation.
+    val text = if (childElements.isEmpty && textContent.nonEmpty) Some(textContent.toString.trim) else None
+    val children = childElements.map { case (name, values) => name -> values.toList }.toMap
+
+    XmlElement(attributes = attributes, text = text, children = children)
   }
 }
 

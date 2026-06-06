@@ -96,10 +96,10 @@ class SchemaInferrer(
     val accumulatedFields = mutable.Map[String, Field]()
     
     xmlParser.parseNamed(file).foreach { iterator =>
-      iterator.take(samplingConfig.size).foreach { case (elemName, contents) =>
-        // Each (elemName, contents) is a depth-2 child of the root.
+      iterator.take(samplingConfig.size).foreach { case (elemName, element) =>
+        // Each (elemName, element) is a depth-2 child of the root.
         // Build a field for this element — a StructType if it has sub-elements.
-        val field = inferField(elemName, contents)
+        val field = Field(elemName, dataTypeOf(element), nullable = true, isArray = false)
         accumulatedFields.get(elemName) match {
           case Some(existing) =>
             accumulatedFields(elemName) = mergeFields(existing, field)
@@ -108,73 +108,41 @@ class SchemaInferrer(
         }
       }
     }
-    
+
     logger.info(s"Inferred ${accumulatedFields.size} fields from sampling")
     Schema(rootElement, accumulatedFields.toMap)
   }
-  
+
   /**
-   * Infer a Field from a parsed value (recursive).
-   * Builds StructType for maps, ArrayType for lists, and leaf types for strings.
+   * Infer a Field for a named child that occurs `elements` times under its parent.
+   * A single occurrence is a scalar/struct; multiple occurrences are an array.
    */
-  private def inferField(name: String, value: Any): Field = {
-    value match {
-      case list: List[_] =>
-        list match {
-          case Nil =>
-            Field(name, DataType.StringType, nullable = true, isArray = true)
-          case single :: Nil =>
-            // The parser wraps every child in a List; a single occurrence is a scalar/struct,
-            // not an array. Recurse on the element so it infers as a leaf or StructType.
-            inferField(name, single)
-          case _ =>
-            list.head match {
-              case _: Map[_, _] =>
-                // List of objects — infer type from all items, merge across them
-                val elemType = list.foldLeft(Option.empty[DataType]) { (acc, item) =>
-                  val itemType = inferMapType(item.asInstanceOf[Map[String, Any]])
-                  acc match {
-                    case None => Some(itemType)
-                    case Some(prev) => Some(mergeDataTypes(prev, itemType))
-                  }
-                }.getOrElse(DataType.StringType)
-                Field(name, elemType, nullable = true, isArray = true)
-              case _ =>
-                // List of primitives
-                val elemType = inferType(list.head.toString)
-                Field(name, elemType, nullable = true, isArray = true)
-            }
-        }
-        
-      case map: Map[_, _] =>
-        val dataType = inferMapType(map.asInstanceOf[Map[String, Any]])
-        Field(name, dataType, nullable = true, isArray = false)
-        
-      case str: String =>
-        Field(name, inferType(str), nullable = true, isArray = false)
-        
-      case _ =>
-        Field(name, DataType.StringType, nullable = true, isArray = false)
+  private def inferElementField(name: String, elements: List[XmlElement]): Field =
+    elements match {
+      case Nil =>
+        Field(name, DataType.StringType, nullable = true, isArray = true)
+      case single :: Nil =>
+        Field(name, dataTypeOf(single), nullable = true, isArray = false)
+      case many =>
+        val elemType = many.map(dataTypeOf).reduce(mergeDataTypes)
+        Field(name, elemType, nullable = true, isArray = true)
     }
-  }
-  
+
   /**
-   * Infer the DataType for a parsed map.
-   * If the map is text-only (just #text and optional @attrs), returns a leaf type.
-   * Otherwise returns a StructType.
+   * Infer the DataType of an element: a leaf type from its text when it has no children,
+   * otherwise a StructType over its attributes (as `@name` fields) and child elements.
    */
-  private def inferMapType(m: Map[String, Any]): DataType = {
-    val nonAttrKeys = m.keys.filterNot(_.startsWith("@")).toSet
-    if (nonAttrKeys == Set("#text")) {
-      inferType(m("#text").toString)
-    } else if (nonAttrKeys.isEmpty) {
-      // Attributes only, no text or children
-      DataType.StringType
+  private def dataTypeOf(element: XmlElement): DataType =
+    if (element.children.isEmpty) {
+      element.text.map(inferType).getOrElse(DataType.StringType)
     } else {
-      DataType.StructType(inferStructFields(m))
+      val attrFields = element.attributes.map { case (k, _) =>
+        s"@$k" -> Field(s"@$k", DataType.StringType, nullable = true, isArray = false)
+      }
+      val childFields = element.children.map { case (name, els) => name -> inferElementField(name, els) }
+      DataType.StructType(attrFields ++ childFields)
     }
-  }
-  
+
   /**
    * Merge two DataTypes, reconciling mismatches.
    */
@@ -184,15 +152,6 @@ class SchemaInferrer(
       case (DataType.StructType(af), DataType.StructType(bf)) =>
         DataType.StructType(mergeFieldMaps(af, bf))
       case _ => DataType.StringType
-    }
-  }
-  
-  /**
-   * Infer fields for a struct (map of name -> value).
-   */
-  private def inferStructFields(element: Map[String, Any]): Map[String, Field] = {
-    element.map { case (name, value) =>
-      name -> inferField(name, value)
     }
   }
   

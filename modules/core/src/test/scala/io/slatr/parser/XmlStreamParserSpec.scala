@@ -21,8 +21,8 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
     val elements = result.get.toList
     
     elements should have size 2
-    elements.head should contain key "title"
-    elements.head should contain key "author"
+    elements.head.children should contain key "title"
+    elements.head.children should contain key "author"
   }
   
   it should "extract root element name" in {
@@ -68,10 +68,10 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
     
     elements should have size 1
     val employee = elements.head
-    
-    employee should contain key "id"
-    employee should contain key "name"
-    employee should contain key "contact"
+
+    employee.children should contain key "id"
+    employee.children should contain key "name"
+    employee.children should contain key "contact"
   }
   
   it should "handle single-item lists" in {
@@ -83,10 +83,10 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
     
     elements should have size 1
     val record = elements.head
-    
+
     // Tags should be a list even with single item
-    record should contain key "tags"
-    val tags = record("tags").asInstanceOf[List[_]]
+    record.children should contain key "tags"
+    val tags = record.children("tags")
     tags should have size 1
   }
 
@@ -100,25 +100,23 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
 
     // --- Item 0: multiple <tag> children inside <tags> ---
     val multi = items(0)
-    val multiName = multi("name").asInstanceOf[List[Map[String, Any]]].head("#text")
-    multiName shouldBe "Item with multiple tags"
+    multi.children("name").head.text shouldBe Some("Item with multiple tags")
 
-    val multiTags = multi("tags").asInstanceOf[List[Map[String, Any]]]
+    val multiTags = multi.children("tags")
     multiTags should have size 1 // one <tags> element
-    val multiTagList = multiTags.head("tag").asInstanceOf[List[Map[String, Any]]]
+    val multiTagList = multiTags.head.children("tag")
     multiTagList should have size 2
-    multiTagList.map(_("#text")) shouldBe List("urgent", "review")
+    multiTagList.flatMap(_.text) shouldBe List("urgent", "review")
 
     // --- Item 1: single <tag> child inside <tags> ---
     val single = items(1)
-    val singleName = single("name").asInstanceOf[List[Map[String, Any]]].head("#text")
-    singleName shouldBe "Item with single tag"
+    single.children("name").head.text shouldBe Some("Item with single tag")
 
-    val singleTags = single("tags").asInstanceOf[List[Map[String, Any]]]
+    val singleTags = single.children("tags")
     singleTags should have size 1
-    val singleTagList = singleTags.head("tag").asInstanceOf[List[Map[String, Any]]]
+    val singleTagList = singleTags.head.children("tag")
     singleTagList should have size 1 // MUST still be a List, not a scalar
-    singleTagList.head("#text") shouldBe "archived"
+    singleTagList.head.text shouldBe Some("archived")
 
     // Key assertion: both multi and single <tag> entries have the same type (List)
     multiTagList shouldBe a[List[_]]
@@ -126,7 +124,7 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
 
     // --- Item 2: no <tags> element at all ---
     val noTags = items(2)
-    noTags should not contain key ("tags")
+    noTags.children should not contain key ("tags")
   }
   
   it should "extract text content from simple elements" in {
@@ -136,10 +134,8 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
     result.isSuccess shouldBe true
     val elements = result.get.toList
     val firstBook = elements.head
-    
-    val titleList = firstBook("title").asInstanceOf[List[_]]
-    val titleMap = titleList.head.asInstanceOf[Map[String, Any]]
-    titleMap("#text") shouldBe "Test Book 1"
+
+    firstBook.children("title").head.text shouldBe Some("Test Book 1")
   }
   
   it should "parse multiple elements correctly" in {
@@ -153,12 +149,10 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
     
     // Verify first book
     val firstBook = elements.head
-    val firstTitle = firstBook("title").asInstanceOf[List[_]].head.asInstanceOf[Map[String, Any]]
-    firstTitle("#text") shouldBe "Test Book 1"
-    
+    firstBook.children("title").head.text shouldBe Some("Test Book 1")
+
     // Verify second book
     val secondBook = elements(1)
-    val secondTitle = secondBook("title").asInstanceOf[List[_]].head.asInstanceOf[Map[String, Any]]
-    secondTitle("#text") shouldBe "Test Book 2"
+    secondBook.children("title").head.text shouldBe Some("Test Book 2")
   }
 }
