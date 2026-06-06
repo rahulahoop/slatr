@@ -1,0 +1,49 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [ main ]
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: sbt
+
+      - name: Set up sbt
+        uses: sbt/setup-sbt@v1
+
+      # Compiles every module, main + test, with -Xfatal-warnings enforced.
+      - name: Compile
+        run: sbt "core/compile" "cli/compile" "Test/compile"
+
+      # Unit tests (no Docker required).
+      - name: Unit tests
+        run: sbt "core/test" "cli/test"
+
+      # Integration tests — Testcontainers spins up the BigQuery emulator and
+      # PostgreSQL via Docker (available on ubuntu-latest runners).
+      - name: Integration tests
+        run: >-
+          sbt "integrationTests/testOnly
+          io.slatr.converter.BigQueryIntegrationSpec
+          io.slatr.converter.PostgreSQLIntegrationSpec
+          io.slatr.converter.DdexToBigQuerySpec
+          io.slatr.converter.SoundRecordingQuerySpec"
+
+      # End-to-end tests.
+      - name: E2E tests
+        run: sbt "integrationTests/testOnly io.slatr.converter.XmlToBigQueryE2ESpec"
