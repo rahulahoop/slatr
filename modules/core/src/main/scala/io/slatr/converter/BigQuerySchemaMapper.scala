@@ -2,7 +2,6 @@ package io.slatr.converter
 
 import com.google.cloud.bigquery.{
   Field => BQField,
-  LegacySQLTypeName,
   Schema => BQSchema,
   StandardSQLTypeName
 }
@@ -29,9 +28,10 @@ object BigQuerySchemaMapper {
   }
 
   /**
-   * Create Firebase-style schema with array of key-value structs
-   * Schema: { fields: [{ name: STRING, value: STRING }] }
-   * This avoids column limits and allows flexible schema evolution
+   * Create Firebase-style schema: a repeated key-value struct holding flattened leaf
+   * paths, plus top-level correlation columns (message_id, file_store_path, etc.).
+   * The struct avoids column limits / allows schema evolution; the correlation columns
+   * let downstream queries join and reassemble messages.
    */
   private def toFirebaseSchema(): BQSchema = {
     val nameField = BQField
@@ -49,7 +49,16 @@ object BigQuerySchemaMapper {
       .setMode(BQField.Mode.REPEATED)
       .build()
 
-    BQSchema.of(fieldStruct)
+    val metadataColumns = BigQueryWriter.MetadataStringColumns.map { name =>
+      BQField.newBuilder(name, StandardSQLTypeName.STRING).setMode(BQField.Mode.NULLABLE).build()
+    }
+
+    val ingestedAt = BQField
+      .newBuilder(BigQueryWriter.IngestedAtColumn, StandardSQLTypeName.TIMESTAMP)
+      .setMode(BQField.Mode.NULLABLE)
+      .build()
+
+    BQSchema.of((fieldStruct +: metadataColumns :+ ingestedAt).asJava)
   }
 
   /**

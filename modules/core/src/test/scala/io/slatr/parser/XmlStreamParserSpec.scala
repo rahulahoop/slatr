@@ -32,6 +32,19 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
     rootElement shouldBe Some("catalog")
   }
   
+  it should "extract and normalize ERN version from the namespace" in {
+    val audio42 = new File("examples/42_Audio.xml")
+    val audio43 = new File("examples/43_Audio.xml")
+    assume(audio42.exists() && audio43.exists())
+
+    parser.extractErnVersion(audio42) shouldBe Some("4.2")
+    parser.extractErnVersion(audio43) shouldBe Some("4.3")
+  }
+
+  it should "return None for ERN version when not a DDEX file" in {
+    parser.extractErnVersion(getTestResource("test-simple.xml")) shouldBe None
+  }
+
   it should "extract XSD URL from XML header" in {
     val file = getTestResource("test-with-xsd.xml")
     val xsdUrl = parser.extractXsdUrl(file)
