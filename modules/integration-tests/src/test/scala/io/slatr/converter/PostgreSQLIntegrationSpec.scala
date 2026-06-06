@@ -18,6 +18,11 @@ import scala.util.Using
  */
 class PostgreSQLIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestContainer {
 
+  // --- XmlElement row helpers (each field becomes a single leaf child) ---
+  private def leaf(text: String): XmlElement = XmlElement(text = Some(text))
+  private def row(fields: (String, String)*): XmlElement =
+    XmlElement(children = fields.map { case (k, v) => k -> List(leaf(v)) }.toMap)
+
   override val container: PostgreSQLContainer =
     PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
 
@@ -44,9 +49,9 @@ class PostgreSQLIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTes
     val writer = PostgreSQLWriter(schema, config)
 
     val rows = Seq(
-      Map[String, Any]("id" -> 1, "name" -> "Product A", "price" -> 19.99, "available" -> true),
-      Map[String, Any]("id" -> 2, "name" -> "Product B", "price" -> 29.99, "available" -> false),
-      Map[String, Any]("id" -> 3, "name" -> "Product C", "price" -> null, "available" -> true)
+      row("id" -> "1", "name" -> "Product A", "price" -> "19.99", "available" -> "true"),
+      row("id" -> "2", "name" -> "Product B", "price" -> "29.99", "available" -> "false"),
+      row("id" -> "3", "name" -> "Product C", "available" -> "true") // null price omitted
     )
 
     val result = writer.write(rows.iterator)
@@ -106,8 +111,8 @@ class PostgreSQLIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTes
     val writer = PostgreSQLWriter(schema, config)
 
     val rows = Seq(
-      Map[String, Any]("id" -> 1, "name" -> "Item A", "category" -> "electronics"),
-      Map[String, Any]("id" -> 2, "name" -> "Item B", "category" -> "books")
+      row("id" -> "1", "name" -> "Item A", "category" -> "electronics"),
+      row("id" -> "2", "name" -> "Item B", "category" -> "books")
     )
 
     writer.write(rows.iterator)
@@ -300,8 +305,8 @@ class PostgreSQLIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTes
     val writer = PostgreSQLWriter(schema, config)
 
     val rows = Seq(
-      Map[String, Any]("title" -> "Song A", "artist" -> "Artist 1", "genre" -> "Rock"),
-      Map[String, Any]("title" -> "Song B", "artist" -> "Artist 2", "genre" -> "Pop")
+      row("title" -> "Song A", "artist" -> "Artist 1", "genre" -> "Rock"),
+      row("title" -> "Song B", "artist" -> "Artist 2", "genre" -> "Pop")
     )
 
     writer.write(rows.iterator)

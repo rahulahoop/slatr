@@ -1,7 +1,7 @@
 package io.slatr.converter
 
 import com.typesafe.scalalogging.LazyLogging
-import io.slatr.model.{DataType, PostgreSQLConfig, Schema, WriteMode}
+import io.slatr.model.{DataType, PostgreSQLConfig, Schema, WriteMode, XmlElement}
 import io.slatr.parser.XmlStreamParser
 
 import java.io.File
@@ -49,7 +49,7 @@ class PostgreSQLWriter(
   /**
    * Write data rows directly to PostgreSQL table
    */
-  def write(rows: Iterator[Map[String, Any]]): String = {
+  def write(rows: Iterator[XmlElement]): String = {
     logger.info(s"Writing data to PostgreSQL: ${config.database}.${config.schema}.${config.table}")
 
     Using.resource(createConnection()) { conn =>
@@ -223,75 +223,84 @@ class PostgreSQLWriter(
    * Serialises the entire row as a proper JSON object so that PostgreSQL
    * JSONB operators work correctly on nested structures.
    */
-  private def setFirebaseParameters(stmt: PreparedStatement, row: Map[String, Any]): Unit = {
-    val json = toJson(row)
-    stmt.setString(1, json)
+  private def setFirebaseParameters(stmt: PreparedStatement, row: XmlElement): Unit = {
+    stmt.setString(1, elementToJson(row))
   }
 
   /**
-   * Set traditional model parameters
+   * Set traditional model parameters. Each column maps to a child element (its leaf text),
+   * an attribute (`@name`), or the element's own text; struct/array columns store JSONB.
    */
-  private def setTraditionalParameters(stmt: PreparedStatement, row: Map[String, Any]): Unit = {
+  private def setTraditionalParameters(stmt: PreparedStatement, row: XmlElement): Unit = {
     var paramIndex = 1
-    
+
     columnMapping.foreach { case (origName, _, field) =>
-      val value = row.get(origName)
-      
-      value match {
-        case None | Some(null) =>
-          stmt.setNull(paramIndex, getSqlType(field.dataType))
-          
-        case Some(v) =>
-          setParameter(stmt, paramIndex, v, field.dataType)
+      field.dataType match {
+        case DataType.ArrayType(_) | DataType.StructType(_) =>
+          val els = row.children.getOrElse(origName, Nil)
+          if (els.isEmpty) {
+            stmt.setNull(paramIndex, getSqlType(field.dataType))
+          } else {
+            val pgObj = new org.postgresql.util.PGobject()
+            pgObj.setType("jsonb")
+            pgObj.setValue(els.map(elementToJson).mkString("[", ",", "]"))
+            stmt.setObject(paramIndex, pgObj)
+          }
+
+        case dataType =>
+          scalarText(row, origName) match {
+            case Some(v) => setParameter(stmt, paramIndex, v, dataType)
+            case None    => stmt.setNull(paramIndex, getSqlType(dataType))
+          }
       }
-      
+
       paramIndex += 1
     }
   }
 
+  /** Resolve a column's scalar text: an attribute (`@name`), the element text (`#text`),
+   * or the leaf text of the single child element named `name`. */
+  private def scalarText(row: XmlElement, name: String): Option[String] =
+    if (name.startsWith("@")) row.attributes.get(name.drop(1))
+    else if (name == "#text") row.text
+    else row.children.get(name).flatMap(_.headOption).flatMap(_.text)
+
   /**
-   * Set parameter value based on data type
+   * Set a scalar parameter value based on data type.
    */
-  private def setParameter(stmt: PreparedStatement, index: Int, value: Any, dataType: DataType): Unit = {
+  private def setParameter(stmt: PreparedStatement, index: Int, value: String, dataType: DataType): Unit = {
     dataType match {
       case DataType.StringType =>
-        stmt.setString(index, value.toString)
-        
+        stmt.setString(index, value)
+
       case DataType.IntType | DataType.LongType =>
-        stmt.setLong(index, value.toString.toLong)
-        
+        stmt.setLong(index, value.toLong)
+
       case DataType.DoubleType =>
-        stmt.setDouble(index, value.toString.toDouble)
-        
+        stmt.setDouble(index, value.toDouble)
+
       case DataType.BooleanType =>
-        stmt.setBoolean(index, value.toString.toBoolean)
-        
+        stmt.setBoolean(index, value.toBoolean)
+
       case DataType.TimestampType =>
-        Try(java.sql.Timestamp.valueOf(value.toString))
+        Try(java.sql.Timestamp.valueOf(value))
           .orElse(Try {
-            val instant = java.time.OffsetDateTime.parse(value.toString).toInstant
+            val instant = java.time.OffsetDateTime.parse(value).toInstant
             java.sql.Timestamp.from(instant)
           })
           .orElse(Try {
-            val instant = java.time.Instant.parse(value.toString)
+            val instant = java.time.Instant.parse(value)
             java.sql.Timestamp.from(instant)
           }) match {
-            case scala.util.Success(ts) => stmt.setTimestamp(index, ts)
-            case scala.util.Failure(_)  => stmt.setString(index, value.toString) // last resort: store as text
-          }
-        
+          case scala.util.Success(ts) => stmt.setTimestamp(index, ts)
+          case scala.util.Failure(_)  => stmt.setString(index, value) // last resort: store as text
+        }
+
       case DataType.DateType =>
-        stmt.setDate(index, java.sql.Date.valueOf(value.toString))
-        
-      case DataType.ArrayType(_) | DataType.StructType(_) =>
-        // For arrays and structs, store as JSONB via PGobject
-        val pgObj = new org.postgresql.util.PGobject()
-        pgObj.setType("jsonb")
-        pgObj.setValue(toJson(value))
-        stmt.setObject(index, pgObj)
+        stmt.setDate(index, java.sql.Date.valueOf(value))
 
       case _ =>
-        stmt.setString(index, value.toString)
+        stmt.setString(index, value)
     }
   }
 
@@ -330,28 +339,16 @@ class PostgreSQLWriter(
   }
 
   /**
-   * Recursively convert an arbitrary Scala value (String, Number, Boolean,
-   * Map, List/Seq, etc.) into a valid JSON string.
+   * Serialise an [[XmlElement]] to a JSON object string: attributes as `@name`, leaf text as
+   * `#text`, and child elements as JSON arrays keyed by tag name.
    */
-  private def toJson(value: Any): String = value match {
-    case null                    => "null"
-    case s: String               => s""""${escapeJson(s)}""""
-    case b: Boolean              => b.toString
-    case n: Int                  => n.toString
-    case n: Long                 => n.toString
-    case n: Double               => n.toString
-    case n: Float                => n.toString
-    case n: BigDecimal           => n.toString
-    case n: java.math.BigDecimal => n.toPlainString
-    case n: Number               => n.toString
-    case map: Map[_, _] =>
-      map.asInstanceOf[Map[String, Any]].map { case (k, v) =>
-        s""""${escapeJson(k)}":${toJson(v)}"""
-      }.mkString("{", ",", "}")
-    case seq: Iterable[_] =>
-      seq.map(toJson).mkString("[", ",", "]")
-    case other =>
-      s""""${escapeJson(other.toString)}""""
+  private def elementToJson(element: XmlElement): String = {
+    val attrFields  = element.attributes.toList.map { case (k, v) => s""""@${escapeJson(k)}":"${escapeJson(v)}"""" }
+    val textField   = element.text.map(t => s""""#text":"${escapeJson(t)}"""").toList
+    val childFields = element.children.toList.map { case (name, els) =>
+      s""""${escapeJson(name)}":${els.map(elementToJson).mkString("[", ",", "]")}"""
+    }
+    (attrFields ++ textField ++ childFields).mkString("{", ",", "}")
   }
 
   /**
