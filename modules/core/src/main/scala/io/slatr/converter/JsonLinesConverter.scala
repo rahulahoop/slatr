@@ -1,7 +1,6 @@
 package io.slatr.converter
 
 import com.typesafe.scalalogging.LazyLogging
-import io.circe.Json
 import io.slatr.model.{Chunk, OutputConfig, Schema, XmlElement}
 import io.slatr.parser.XmlStreamParser
 
@@ -29,29 +28,28 @@ class JsonLinesConverter(xmlParser: XmlStreamParser) extends Converter with Lazy
       
       var count = 0
       elements.foreach { element =>
-        val json = elementToJson(element)
-        writer.write(json.noSpaces)
+        writer.write(ujson.write(elementToJson(element)))
         writer.write("\n")
         count += 1
       }
-      
+
       logger.info(s"Successfully wrote $count lines to ${outputFile.getAbsolutePath}")
     }.get
-    
+
     outputFile
   }
-  
+
   /**
-   * Convert an [[XmlElement]] to Circe JSON: attributes as `@name`, leaf text as `#text`,
+   * Convert an [[XmlElement]] to JSON: attributes as `@name`, leaf text as `#text`,
    * and child elements as arrays keyed by tag name.
    */
-  private def elementToJson(element: XmlElement): Json = {
-    val attrFields  = element.attributes.map { case (k, v) => s"@$k" -> Json.fromString(v) }
-    val textField   = element.text.map(t => "#text" -> Json.fromString(t)).toMap
+  private def elementToJson(element: XmlElement): ujson.Value = {
+    val attrFields  = element.attributes.map { case (k, v) => s"@$k" -> (ujson.Str(v): ujson.Value) }
+    val textField   = element.text.map(t => "#text" -> (ujson.Str(t): ujson.Value)).toMap
     val childFields = element.children.map { case (name, els) =>
-      name -> Json.arr(els.map(elementToJson): _*)
+      name -> (ujson.Arr.from(els.map(elementToJson)): ujson.Value)
     }
-    Json.obj((attrFields ++ textField ++ childFields).toSeq: _*)
+    ujson.Obj.from(attrFields ++ textField ++ childFields)
   }
 }
 

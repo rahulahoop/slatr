@@ -40,7 +40,7 @@ lazy val core = (project in file("modules/core"))
       xerces,
       sttp,
       betterFiles
-    ) ++ circeDeps ++ loggingDeps ++ parquetDeps ++ bigqueryDeps ++ postgresqlDeps ++ testDeps
+    ) ++ jsonDeps ++ loggingDeps ++ parquetDeps ++ bigqueryDeps ++ postgresqlDeps ++ testDeps
   )
 
 // CLI module
@@ -50,7 +50,7 @@ lazy val cli = (project in file("modules/cli"))
     libraryDependencies ++= Seq(
       decline,
       declineEffect
-    ) ++ loggingDeps ++ testDeps,
+    ) ++ jsonDeps ++ loggingDeps ++ testDeps,
     assembly / mainClass       := Some("io.slatr.cli.Main"),
     assembly / assemblyJarName := "slatr.jar",
     assembly / assemblyMergeStrategy := {

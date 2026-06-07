@@ -1,5 +1,7 @@
 package io.slatr.model
 
+import upickle.default.{ReadWriter, macroRW, readwriter}
+
 /** Configuration for XML conversion */
 case class SlatrConfig(
   input: InputConfig,
@@ -37,6 +39,16 @@ object SchemaMode {
     case "hybrid" => Hybrid
     case _ => Hybrid
   }
+
+  implicit val rw: ReadWriter[SchemaMode] = readwriter[String].bimap[SchemaMode](
+    {
+      case Auto   => "auto"
+      case Xsd    => "xsd"
+      case Manual => "manual"
+      case Hybrid => "hybrid"
+    },
+    fromString
+  )
 }
 
 case class XsdConfig(
@@ -95,6 +107,16 @@ object OutputFormat {
     case "parquet" => Parquet
     case _ => Json
   }
+
+  implicit val rw: ReadWriter[OutputFormat] = readwriter[String].bimap[OutputFormat](
+    {
+      case Json      => "json"
+      case JsonLines => "jsonl"
+      case Avro      => "avro"
+      case Parquet   => "parquet"
+    },
+    fromString
+  )
 }
 
 case class LoggingConfig(
@@ -123,6 +145,15 @@ object WriteMode {
     case "error" => ErrorIfExists
     case _ => Append
   }
+
+  implicit val rw: ReadWriter[WriteMode] = readwriter[String].bimap[WriteMode](
+    {
+      case Append        => "append"
+      case Overwrite     => "overwrite"
+      case ErrorIfExists => "error"
+    },
+    fromString
+  )
 }
 
 case class PostgreSQLConfig(
@@ -136,3 +167,17 @@ case class PostgreSQLConfig(
   writeMode: WriteMode = WriteMode.Append,
   useFirebaseModel: Boolean = false // Use Firebase-style JSONB key-value storage
 )
+
+// upickle JSON ReadWriters. Case-class macros honour the default arguments above, so config
+// files may omit any field. Sealed-trait codecs map to/from their lowercase string labels.
+object SlatrConfig      { implicit val rw: ReadWriter[SlatrConfig]      = macroRW }
+object InputConfig      { implicit val rw: ReadWriter[InputConfig]      = macroRW }
+object SchemaConfig     { implicit val rw: ReadWriter[SchemaConfig]     = macroRW }
+object XsdConfig        { implicit val rw: ReadWriter[XsdConfig]        = macroRW }
+object SamplingConfig   { implicit val rw: ReadWriter[SamplingConfig]   = macroRW }
+object SchemaOverrides  { implicit val rw: ReadWriter[SchemaOverrides]  = macroRW }
+object ChunkingConfig   { implicit val rw: ReadWriter[ChunkingConfig]   = macroRW }
+object OutputConfig     { implicit val rw: ReadWriter[OutputConfig]     = macroRW }
+object LoggingConfig    { implicit val rw: ReadWriter[LoggingConfig]    = macroRW }
+object BigQueryConfig   { implicit val rw: ReadWriter[BigQueryConfig]   = macroRW }
+object PostgreSQLConfig { implicit val rw: ReadWriter[PostgreSQLConfig] = macroRW }
