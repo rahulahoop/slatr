@@ -7,7 +7,6 @@ import io.slatr.model.{BigQueryConfig, Chunk, DataType, Field, Schema, WriteMode
 import io.slatr.parser.XmlStreamParser
 
 import java.io.{File, FileInputStream}
-import java.time.Instant
 import scala.jdk.CollectionConverters._
 import scala.util.{Try, Using}
 
@@ -27,45 +26,43 @@ class BigQueryWriter(
   ): TableId =
     writeRows(rows.map(element => (element, metadata)))
 
+  // In the columnar (traditional) model each row is a depth-2 element's content, so the table
+  // columns are that element's children — lift the inferred {elem: Struct} one level. The
+  // Firebase model ignores the declared schema.
+  private lazy val rowSchema: Schema =
+    if (config.useFirebaseModel) schema else BigQueryWriter.columnarSchema(schema)
+
   /**
-   * Write rows where each row carries its own top-level metadata (Firebase model only).
-   * Used by the DDEX path to attach per-row `element_name` plus shared file metadata.
+   * Build rows (each carrying its own top-level metadata) and stream them in. Firebase rows are
+   * delegated to [[FirebaseConverter]]; columnar rows are built from the lifted row schema.
    */
   private def writeRows(rowsWithMeta: Iterator[(XmlElement, Map[String, String])]): TableId = {
+    val rowsList = rowsWithMeta.map { case (element, meta) =>
+      if (config.useFirebaseModel) {
+        InsertAllRequest.RowToInsert.of(FirebaseConverter.toMap(element, meta))
+      } else {
+        createInsertAllRequest(element, rowSchema)
+      }
+    }.toList
+    insert(rowsList)
+  }
+
+  /** Create/verify the table for the configured model, then stream the rows in. */
+  private def insert(rowsList: List[InsertAllRequest.RowToInsert]): TableId = {
     logger.info(
       s"Writing data to BigQuery: ${config.projectId}.${config.datasetId}.${config.tableId}"
     )
 
-    // Initialize BigQuery client
     val bigquery = bigQueryFactory.map(_.apply()).getOrElse(createBigQueryClient(config))
-
-    // In the columnar (traditional) model each row is a depth-2 element's content, so the
-    // table columns are that element's children — lift the inferred {elem: Struct} one level.
-    val rowSchema = if (config.useFirebaseModel) schema else BigQueryWriter.columnarSchema(schema)
-
-    // Create BigQuery schema
     val bqSchema = BigQuerySchemaMapper.toBigQuerySchema(rowSchema, config.useFirebaseModel)
 
     if (config.useFirebaseModel) {
       logger.info("Using Firebase model (array of key-value structs)")
     }
-
     logger.debug(s"BigQuery schema: ${bqSchema.getFields.asScala.map(_.getName).mkString(", ")}")
 
     val tableId = TableId.of(config.projectId, config.datasetId, config.tableId)
-
-    // Create or verify table exists
     ensureTable(bigquery, tableId, bqSchema, config)
-
-    // Convert to BigQuery rows
-    val rowsList = rowsWithMeta.map { case (element, meta) =>
-      if (config.useFirebaseModel) {
-        buildFirebaseRow(element, meta)
-      } else {
-        createInsertAllRequest(element, rowSchema, bqSchema)
-      }
-    }.toList
-
     insertRows(bigquery, tableId, rowsList)
     tableId
   }
@@ -117,41 +114,17 @@ class BigQueryWriter(
       s"Writing ${xmlFile.getName} to BigQuery: ${config.projectId}.${config.datasetId}.${config.tableId}"
     )
 
-    // Parse XML keeping each depth-2 element's name (e.g. ResourceList, DealList)
-    val elements = xmlParser
-      .parseNamed(xmlFile, chunk)
-      .getOrElse(throw new Exception("Failed to parse XML"))
-      .toList
-
-    // File-level correlation metadata, applied to every row of this message
-    val fileMetadata = buildFileMetadata(xmlFile, xmlParser, elements)
-
-    // Each row also carries which depth-2 element it came from
-    writeRows(elements.iterator.map { case (name, element) =>
-      (element, fileMetadata + ("element_name" -> name))
-    })
-  }
-
-  /**
-   * Build the per-file correlation metadata: source path, ERN version, and key
-   * MessageHeader fields. These become top-level columns so downstream queries can
-   * GROUP BY message_id to reassemble a message from its per-element rows.
-   */
-  private def buildFileMetadata(
-    file: File,
-    xmlParser: XmlStreamParser,
-    elements: List[(String, XmlElement)]
-  ): Map[String, String] = {
-    val header = elements.collectFirst { case ("MessageHeader", m) => m }
-    def hv(path: String*): Option[String] = header.flatMap(_.textAt(path: _*))
-
-    Map(
-      "file_store_path"          -> Some(file.getAbsolutePath),
-      "ern_version"              -> xmlParser.extractErnVersion(file),
-      "message_id"               -> hv("MessageId"),
-      "message_sender_id"        -> hv("MessageSender", "PartyId"),
-      "message_created_datetime" -> hv("MessageCreatedDateTime")
-    ).collect { case (k, Some(v)) if v.nonEmpty => k -> v }
+    if (config.useFirebaseModel) {
+      // Firebase rows (with correlation metadata) are built by the importable converter.
+      insert(FirebaseConverter.fromXml(xmlFile, xmlParser, chunk).map(InsertAllRequest.RowToInsert.of).toList)
+    } else {
+      // Columnar model: one row per depth-2 element, no correlation metadata.
+      val elements = xmlParser
+        .parseNamed(xmlFile, chunk)
+        .getOrElse(throw new Exception("Failed to parse XML"))
+        .toList
+      writeRows(elements.iterator.map { case (_, element) => (element, Map.empty[String, String]) })
+    }
   }
 
   /**
@@ -230,33 +203,11 @@ class BigQueryWriter(
     }
 
   /**
-   * Create a Firebase-style InsertAllRequest row: the flattened leaf paths in the
-   * repeated `fields` struct, plus top-level correlation columns from `metadata`.
-   * Format: { fields: [{ name, value }, ...], message_id: ..., ingested_at: ... }
-   */
-  private def buildFirebaseRow(
-    element: XmlElement,
-    metadata: Map[String, String]
-  ): InsertAllRequest.RowToInsert = {
-    val fields: java.util.List[java.util.Map[String, String]] =
-      BigQueryWriter.toFirebaseFields(element).map { case (name, value) =>
-        Map("name" -> name, "value" -> value).asJava
-      }.asJava
-
-    val content = scala.collection.mutable.Map[String, AnyRef]("fields" -> fields)
-    metadata.foreach { case (k, v) => content(k) = v }
-    content(BigQueryWriter.IngestedAtColumn) = Instant.now().toString
-
-    InsertAllRequest.RowToInsert.of(content.asJava)
-  }
-
-  /**
    * Create InsertAllRequest row from a parsed XML element (columnar model).
    */
   private def createInsertAllRequest(
     element: XmlElement,
-    schema: Schema,
-    bqSchema: com.google.cloud.bigquery.Schema
+    schema: Schema
   ): InsertAllRequest.RowToInsert =
     InsertAllRequest.RowToInsert.of(buildRecord(element, schema.fields))
 
@@ -382,46 +333,6 @@ class BigQueryWriter(
 }
 
 object BigQueryWriter {
-
-  /**
-   * Top-level STRING correlation columns added to every Firebase-model row.
-   * Referenced by both the schema mapper and row population so they cannot drift.
-   */
-  val MetadataStringColumns: Seq[String] = Seq(
-    "file_store_path",
-    "element_name",
-    "message_id",
-    "message_sender_id",
-    "message_created_datetime",
-    "ern_version"
-  )
-
-  /** Pipeline ingestion timestamp column (TIMESTAMP). */
-  val IngestedAtColumn: String = "ingested_at"
-
-  /**
-   * Flatten an element into Firebase leaf paths: `(path, value)` pairs. Fully recursive —
-   * every child occurrence is indexed (`name[idx]`), nested children are dotted
-   * (`parent[i].child[j]`), attributes are `@name`, and leaf text is the value. No data dropped.
-   */
-  def toFirebaseFields(element: XmlElement): List[(String, String)] = {
-    val textEntry   = element.text.map(t => "#text" -> t).toList
-    val attrEntries = element.attributes.toList.map { case (k, v) => s"@$k" -> v }
-    val childEntries = element.children.toList.flatMap { case (name, els) =>
-      els.zipWithIndex.flatMap { case (child, idx) => flattenAt(s"$name[$idx]", child) }
-    }
-    textEntry ++ attrEntries ++ childEntries
-  }
-
-  /** Flatten an element nested at `path`, prefixing every produced key with `path`. */
-  private def flattenAt(path: String, element: XmlElement): List[(String, String)] = {
-    val textEntry   = element.text.map(t => path -> t).toList
-    val attrEntries = element.attributes.toList.map { case (k, v) => s"$path.@$k" -> v }
-    val childEntries = element.children.toList.flatMap { case (name, els) =>
-      els.zipWithIndex.flatMap { case (child, idx) => flattenAt(s"$path.$name[$idx]", child) }
-    }
-    textEntry ++ attrEntries ++ childEntries
-  }
 
   /**
    * Derive the columnar (traditional) row schema. Inference keys fields by the depth-2

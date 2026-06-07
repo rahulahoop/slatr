@@ -49,12 +49,12 @@ object BigQuerySchemaMapper {
       .setMode(BQField.Mode.REPEATED)
       .build()
 
-    val metadataColumns = BigQueryWriter.MetadataStringColumns.map { name =>
+    val metadataColumns = FirebaseConverter.MetadataStringColumns.map { name =>
       BQField.newBuilder(name, StandardSQLTypeName.STRING).setMode(BQField.Mode.NULLABLE).build()
     }
 
     val ingestedAt = BQField
-      .newBuilder(BigQueryWriter.IngestedAtColumn, StandardSQLTypeName.TIMESTAMP)
+      .newBuilder(FirebaseConverter.IngestedAtColumn, StandardSQLTypeName.TIMESTAMP)
       .setMode(BQField.Mode.NULLABLE)
       .build()
 
