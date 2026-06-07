@@ -23,7 +23,7 @@ object ConvertCommand {
     .withDefault("json")
     .map(OutputFormat.fromString)
   
-  val configOpt: Opts[Option[File]] = Opts.option[String]("config", short = "c", help = "Config file path")
+  val configOpt: Opts[Option[File]] = Opts.option[String]("config", short = "c", help = "Config file path (JSON)")
     .mapValidated(s => new File(s).validNel)
     .orNone
   

@@ -18,10 +18,7 @@ object Dependencies {
   val declineEffect = "com.monovore" %% "decline-effect" % "2.4.1"
   
   // Config & JSON
-  val circeCore = "io.circe" %% "circe-core" % "0.14.6"
-  val circeGeneric = "io.circe" %% "circe-generic" % "0.14.6"
-  val circeParser = "io.circe" %% "circe-parser" % "0.14.6"
-  val circeYaml = "io.circe" %% "circe-yaml" % "0.15.1"
+  val upickle = "com.lihaoyi" %% "upickle" % "4.3.2"
   
   // Logging
   val logback = "ch.qos.logback" % "logback-classic" % "1.4.14"
@@ -54,7 +51,7 @@ object Dependencies {
   val testcontainersPostgres = "com.dimafeng" %% "testcontainers-scala-postgresql" % "0.44.1" % "it,test"
   
   // Dependency groups
-  val circeDeps = Seq(circeCore, circeGeneric, circeParser, circeYaml)
+  val jsonDeps = Seq(upickle)
   val loggingDeps = Seq(logback, scalaLogging)
   val testDeps = Seq(scalaTest, scalaCheck)
   val integrationTestDeps = Seq(testcontainers, testcontainersScalatest, testcontainersPostgres, scalaTest, scalaCheck)

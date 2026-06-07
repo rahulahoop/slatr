@@ -1,45 +1,26 @@
 package io.slatr.cli.config
 
-import io.circe.generic.auto._
-import io.circe.yaml.parser
 import io.slatr.model._
 
 import java.io.File
 import scala.io.Source
 import scala.util.{Try, Using}
 
-/** Loads configuration from YAML files */
+/** Loads configuration from JSON files. */
 object ConfigLoader {
-  
-  /**
-   * Load configuration from YAML file
-   */
+
+  /** Load configuration from a JSON file. */
   def loadFromFile(file: File): Try[SlatrConfig] = Try {
     Using(Source.fromFile(file)) { source =>
-      val yamlContent = source.mkString
-      parseYaml(yamlContent)
+      parseJson(source.mkString)
     }.get
   }
-  
-  /**
-   * Parse YAML string to config
-   */
-  def parseYaml(yamlContent: String): SlatrConfig = {
-    parser.parse(yamlContent) match {
-      case Right(json) =>
-        json.as[SlatrConfig] match {
-          case Right(config) => config
-          case Left(error) =>
-            throw new Exception(s"Failed to decode config: ${error.getMessage}")
-        }
-      case Left(error) =>
-        throw new Exception(s"Failed to parse YAML: ${error.getMessage}")
-    }
-  }
-  
-  /**
-   * Create default configuration
-   */
+
+  /** Parse a JSON string into a [[SlatrConfig]]. Throws on malformed JSON or invalid shape. */
+  def parseJson(jsonContent: String): SlatrConfig =
+    upickle.default.read[SlatrConfig](jsonContent)
+
+  /** Create a default configuration. */
   def defaultConfig(inputPath: String, outputPath: String): SlatrConfig = {
     SlatrConfig(
       input = InputConfig(path = inputPath),
