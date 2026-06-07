@@ -319,10 +319,10 @@ class BigQueryIntegrationSpec extends AnyFlatSpec with Matchers with ForAllTestC
       val bqSchema = table.getDefinition[StandardTableDefinition].getSchema
       
       // Firebase schema = the repeated `fields` struct + top-level correlation columns
-      bqSchema.getFields.size() shouldBe (BigQueryWriter.MetadataStringColumns.size + 2)
+      bqSchema.getFields.size() shouldBe (FirebaseConverter.MetadataStringColumns.size + 2)
       val fieldNames = bqSchema.getFields.asScala.map(_.getName).toSet
       fieldNames should contain("message_id")
-      fieldNames should contain(BigQueryWriter.IngestedAtColumn)
+      fieldNames should contain(FirebaseConverter.IngestedAtColumn)
 
       val fieldsField = bqSchema.getFields.get("fields")
       fieldsField.getMode shouldBe com.google.cloud.bigquery.Field.Mode.REPEATED
