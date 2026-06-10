@@ -48,8 +48,12 @@ object FirebaseConverter {
 
     val fileMetadata = buildFileMetadata(xmlFile, xmlParser, elements)
 
+    // Root-element attributes belong to no depth-2 row, so carry them on every row's fields[]
+    // as `@name` (document-level attributes such as ReleaseProfileVersionId).
+    val rootAttributes = xmlParser.extractRootAttributes(xmlFile).toList.map { case (k, v) => s"@$k" -> v }
+
     elements.map { case (name, element) =>
-      toMap(element, fileMetadata + ("element_name" -> name))
+      toMap(element, fileMetadata + ("element_name" -> name), rootAttributes)
     }
   }
 
@@ -59,10 +63,11 @@ object FirebaseConverter {
    */
   private[converter] def toMap(
     element: XmlElement,
-    metadata: Map[String, String]
+    metadata: Map[String, String],
+    extraFields: List[(String, String)] = Nil
   ): java.util.Map[String, AnyRef] = {
     val fields: java.util.List[java.util.Map[String, String]] =
-      toFirebaseFields(element).map { case (name, value) =>
+      (toFirebaseFields(element) ++ extraFields).map { case (name, value) =>
         Map("name" -> name, "value" -> value).asJava
       }.asJava
 

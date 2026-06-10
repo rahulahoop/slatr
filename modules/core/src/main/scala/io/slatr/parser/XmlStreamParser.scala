@@ -113,6 +113,25 @@ class XmlStreamParser extends LazyLogging {
     }.toOption.flatten
   }
 
+  /**
+   * Extract the root element's attributes (excludes namespace declarations, which StAX
+   * reports separately). Returns an empty map if the file is empty or unreadable.
+   */
+  def extractRootAttributes(file: File): Map[String, String] = {
+    Using(new FileInputStream(file)) { stream =>
+      val reader = inputFactory.createXMLStreamReader(stream)
+      try {
+        advanceToFirstStartElement(reader).map { _ =>
+          (0 until reader.getAttributeCount).map { i =>
+            reader.getAttributeLocalName(i) -> reader.getAttributeValue(i)
+          }.toMap
+        }.getOrElse(Map.empty)
+      } finally {
+        reader.close()
+      }
+    }.toOption.getOrElse(Map.empty)
+  }
+
   /** Advance reader to the first START_ELEMENT, returning Some(()) if found, None if EOF. */
   @scala.annotation.tailrec
   private def advanceToFirstStartElement(reader: XMLStreamReader): Option[Unit] = {

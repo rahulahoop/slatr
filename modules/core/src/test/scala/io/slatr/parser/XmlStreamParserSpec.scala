@@ -28,8 +28,23 @@ class XmlStreamParserSpec extends AnyFlatSpec with Matchers {
   it should "extract root element name" in {
     val file = getTestResource("test-simple.xml")
     val rootElement = parser.getRootElementName(file)
-    
+
     rootElement shouldBe Some("catalog")
+  }
+
+  it should "capture element and nested attributes" in {
+    val file = getTestResource("test-attributes.xml")
+    val book = parser.parse(file, None).get.toList.head
+
+    book.attributes("id") shouldBe "b1"
+    val title = book.children("title").head
+    title.attributes("lang") shouldBe "en"
+    title.text shouldBe Some("Hello")
+  }
+
+  it should "extract root element attributes" in {
+    val file = getTestResource("test-attributes.xml")
+    parser.extractRootAttributes(file) shouldBe Map("version" -> "2.0", "lang" -> "en")
   }
   
   it should "extract and normalize ERN version from the namespace" in {
