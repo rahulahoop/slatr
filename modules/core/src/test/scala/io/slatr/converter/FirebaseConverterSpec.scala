@@ -49,4 +49,39 @@ class FirebaseConverterSpec extends AnyFlatSpec with Matchers {
     row.put("ingested_by", "backfill-job")
     row.get("ingested_by") shouldBe "backfill-job"
   }
+
+  private def attrFile = new File(getClass.getResource("/test-attributes.xml").toURI)
+
+  /** Collect all (name -> value) field pairs across the given rows. */
+  private def allFields(rows: Seq[java.util.Map[String, AnyRef]]): Map[String, String] =
+    rows.flatMap { m =>
+      m.get("fields").asInstanceOf[java.util.List[AnyRef]].asScala.map { f =>
+        val fm = f.asInstanceOf[java.util.Map[String, AnyRef]]
+        fm.get("name").toString -> fm.get("value").toString
+      }
+    }.toMap
+
+  it should "flatten element attributes as @name keys" in {
+    val fields = allFields(FirebaseConverter.fromXml(attrFile))
+    fields("@id") shouldBe "b1"          // the row element's own attribute
+    fields("title[0]") shouldBe "Hello"  // leaf text
+    fields("title[0].@lang") shouldBe "en"
+  }
+
+  it should "capture root-element attributes into each row" in {
+    val fields = allFields(FirebaseConverter.fromXml(attrFile))
+    fields("@version") shouldBe "2.0"    // root attribute
+    fields("@lang") shouldBe "en"
+  }
+
+  it should "capture root attributes from a real ERN file into every row" in {
+    assume(sample.exists())
+    val rows = FirebaseConverter.fromXml(sample)
+    val allHaveProfile = rows.forall { m =>
+      m.get("fields").asInstanceOf[java.util.List[AnyRef]].asScala.exists { f =>
+        f.asInstanceOf[java.util.Map[String, AnyRef]].get("name").toString == "@ReleaseProfileVersionId"
+      }
+    }
+    allHaveProfile shouldBe true
+  }
 }
